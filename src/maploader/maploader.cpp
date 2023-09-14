@@ -86,6 +86,8 @@
 #include "scene/hw_meshcache.h"
 #include "version.h"
 
+#include "vulkan/accelstructs/halffloat.h"
+
 enum
 {
 	MISSING_TEXTURE_WARN_LIMIT = 20
@@ -93,6 +95,7 @@ enum
 
 CVAR (Bool, genblockmap, false, CVAR_SERVERINFO|CVAR_GLOBALCONFIG);
 CVAR (Bool, gennodes, false, CVAR_SERVERINFO|CVAR_GLOBALCONFIG);
+CVAR (Bool, genlightmaps, true, CVAR_GLOBALCONFIG);
 
 inline bool P_LoadBuildMap(uint8_t *mapdata, size_t len, FMapThing **things, int *numthings)
 {
@@ -2943,7 +2946,7 @@ void MapLoader::CalcIndices()
 //
 //==========================================================================
 
-void MapLoader::InitLevelMesh()
+void MapLoader::InitLevelMesh(MapData* map)
 {
 	// Propagate sample distance where it isn't yet set
 	for (auto& line : Level->lines)
@@ -2966,8 +2969,288 @@ void MapLoader::InitLevelMesh()
 		}
 	}
 
+	if (map->Size(ML_LIGHTMAP))
+	{
+		// Arbitrary ZDRay limit. This will break lightmap lump loading if not enforced.
+		Level->LightmapSampleDistance = Level->LightmapSampleDistance < 8 ? 8 : Level->LightmapSampleDistance;
+
+		if (!Level->lightmaps) // We are unfortunately missing ZDRayInfo
+		{
+			Printf(PRINT_HIGH, "InitLevelMesh: The level contains LIGHTMAP, but no ZDRayInfo thing was detected in the level.\n");
+		}
+	}
+	else
+	{
+		Level->lightmaps = Level->lightmaps || *genlightmaps; // Allow lightmapping in non-lightmapped levels.
+	}
+
+	// Levelmesh and lightmap binding/loading
 	Level->levelMesh = new DoomLevelMesh(*Level);
-	Level->lightmaps = true;
+
+	if (Level->lightmaps)
+	{
+		LoadLightmap(map);
+		Level->levelMesh->BindLightmapSurfacesToGeometry(*Level);
+	}
+	else
+	{
+		Level->levelMesh->Surfaces.Clear(); // Temp hack that disables lightmapping
+	}
+}
+
+void MapLoader::LoadLightmap(MapData* map)
+{
+	if (!map->Size(ML_LIGHTMAP))
+		return;
+
+	FileReader fr;
+	if (!fr.OpenDecompressor(map->Reader(ML_LIGHTMAP), -1, METHOD_ZLIB, false, [](const char* err) { I_Error("%s", err); }))
+		return;
+
+	int version = fr.ReadInt32();
+	if (version == 0)
+	{
+		Printf(PRINT_HIGH, "LoadLightmap: This is an old unsupported alpha version of the lightmap lump. Please rebuild the map with a newer version of zdray.\n");
+		return;
+	}
+	if (version == 1)
+	{
+		Printf(PRINT_HIGH, "LoadLightmap: This is an old unsupported version of the lightmap lump. Please rebuild the map with a newer version of zdray.\n");
+		return;
+	}
+	if (version != 2)
+	{
+		Printf(PRINT_HIGH, "LoadLightmap: unsupported lightmap lump version\n");
+		return;
+	}
+
+	uint32_t numSurfaces = fr.ReadUInt32();
+	uint32_t numTexPixels = fr.ReadUInt32();
+	uint32_t numTexCoords = fr.ReadUInt32();
+
+	if (numSurfaces == 0 || numTexCoords == 0 || numTexPixels == 0)
+		return;
+
+	bool errors = false;
+
+	// Load the surfaces we have lightmap data for
+
+	// TODO more optimized way:
+	auto findSurfaceIndex = [&](int type, int index, const sector_t* sec) {
+		const auto& surfaces = Level->levelMesh->Surfaces;
+		for (unsigned i = 0, count = surfaces.Size(); i < count; ++i)
+		{
+			if (surfaces[i].Type == type && surfaces[i].typeIndex == index && sec == surfaces[i].ControlSector)
+			{
+				return i;
+			}
+		}
+		return 0xffffffff;
+	};
+
+	auto getControlSector = [&](uint32_t index)
+	{
+		return index < Level->sectors.Size() ? &Level->sectors[index] : nullptr;
+	};
+
+	struct SurfaceEntry // V2 entries
+	{
+		uint32_t type, typeIndex;
+		uint32_t controlSector; // 0xFFFFFFFF is none
+		uint16_t width, height; // in pixels
+		uint32_t pixelsOffset; // offset in pixels array
+		uint32_t uvCount, uvOffset;
+	};
+
+	TArray<SurfaceEntry> zdraySurfaces;
+
+	for (auto& surface : Level->levelMesh->Surfaces)
+	{
+		surface.needsUpdate = false; // let's consider everything valid until we make a mistake trying to change this surface
+	}
+
+	for (uint32_t i = 0; i < numSurfaces; i++)
+	{
+		SurfaceEntry surface;
+		surface.type = fr.ReadUInt32();
+		surface.typeIndex = fr.ReadUInt32();
+		surface.controlSector = fr.ReadUInt32();
+		surface.width = fr.ReadUInt16();
+		surface.height = fr.ReadUInt16();
+		surface.pixelsOffset = fr.ReadUInt32();
+		surface.uvCount = fr.ReadUInt32();
+		surface.uvOffset = fr.ReadUInt32();
+
+		auto controlSector = getControlSector(surface.controlSector);
+
+		// Check against the internal levelmesh
+
+		if (i >= Level->levelMesh->Surfaces.Size())
+		{
+			errors = true;
+			if (developer >= 1)
+			{
+				Printf(PRINT_HIGH, "Lightmap lump surface index %d is out of bounds\n", i);
+			}
+			continue;
+		}
+
+		auto levelSurface = &Level->levelMesh->Surfaces[i];
+
+		if (levelSurface->Type != surface.type || levelSurface->typeIndex != surface.typeIndex || levelSurface->ControlSector != controlSector)
+		{
+			auto internalIndex = findSurfaceIndex(surface.type, surface.typeIndex, controlSector);
+
+			if (internalIndex < Level->levelMesh->Surfaces.Size())
+			{
+				levelSurface = &Level->levelMesh->Surfaces[internalIndex];
+			}
+			else
+			{
+				errors = true;
+				if (developer >= 1)
+				{
+					Printf(PRINT_HIGH, "Lightmap lump surface %d mismatch. Couldn't find surface type:%d, typeindex:%d, controlsector:%d\n", i, surface.type, surface.typeIndex, surface.controlSector);
+				}
+				// TODO detailed printout
+				continue;
+			}
+		}
+
+		zdraySurfaces.Push(surface);
+	}
+
+	// Load pixels
+	TArray<uint16_t> textureData;
+	textureData.Resize(numTexPixels * 3);
+	uint8_t* data = (uint8_t*)&textureData[0];
+	fr.Read(data, numTexPixels * 3 * sizeof(uint16_t));
+
+	// Load texture coordinates	
+	TArray<FVector2> zdrayUvs;
+	zdrayUvs.Resize(numTexCoords);
+	fr.Read(&zdrayUvs[0], numTexCoords * 2 * sizeof(float));
+
+	// Load lightmap textures
+	Level->levelMesh->LMTextureData.Resize(Level->levelMesh->LMTextureCount * Level->levelMesh->LMTextureSize * Level->levelMesh->LMTextureSize * 3);
+
+	for (auto& pixel : Level->levelMesh->LMTextureData)
+	{
+		pixel = floatToHalf(0.0);
+	}
+
+	auto textureSize = Level->levelMesh->LMTextureSize;
+
+	// Map surface pixels into atlas
+	for (auto& surface : zdraySurfaces)
+	{
+		auto& realSurface = Level->levelMesh->Surfaces[findSurfaceIndex(surface.type, surface.typeIndex, getControlSector(surface.controlSector))];
+
+		// calculate pixel positions
+		uint32_t srcPixelOffset = surface.pixelsOffset;
+
+		int dstX = realSurface.atlasX;
+		int dstY = realSurface.atlasY;
+		int dstPage = realSurface.atlasPageIndex;
+
+		// Sanity checks
+		if (dstX < 0 || dstY < 0 || dstX + surface.width > textureSize || dstY + surface.height > textureSize || dstPage >= Level->levelMesh->LMTextureCount)
+		{
+			errors = true;
+			if (developer >= 1)
+			{
+				Printf("Can't map lightmap surface pixels[%u] -> ((x:%d, y:%d), (x2:%d, y2:%d), page:%d)\n", srcPixelOffset, dstX, dstY, dstX + surface.width, dstY + surface.height, dstPage);
+			}
+			realSurface.needsUpdate = true;
+			continue;
+		}
+
+		if (realSurface.texWidth != surface.width || realSurface.texHeight != surface.height)
+		{
+			errors = true;
+			if (developer >= 1)
+			{
+				Printf("Surface size mismatch: Attempting to remap %dx%d to %dx%d pixel area.\n", surface.width, surface.height, realSurface.texWidth, realSurface.texHeight);
+			}
+			realSurface.needsUpdate = true;
+			continue;
+		}
+
+		if (developer >= 5)
+		{
+			Printf("Mapping lightmap surface pixels[%u] (count: %u) -> ((x:%d, y:%d), (x2:%d, y2:%d), page:%d) area: %u\n",
+				srcPixelOffset, surface.width * surface.height * 3,
+				dstX, dstY,
+				dstX + realSurface.texWidth, dstY + realSurface.texHeight,
+				dstPage,
+				realSurface.Area() * 3);
+		}
+
+		// copy pixels
+		uint16_t* src = &textureData[srcPixelOffset];
+		uint16_t* dst = &Level->levelMesh->LMTextureData[dstPage * textureSize * textureSize * 3];
+
+		uint32_t srcIndex = 0;
+
+		for (int y = 0; y < surface.height; ++y)
+		{
+			for (int x = 0; x < surface.width; ++x)
+			{
+				uint32_t dstIndex = (dstX + x + (dstY + y) * textureSize) * 3;
+
+				dst[dstIndex] = src[srcIndex];
+				dst[dstIndex + 1] = src[srcIndex + 1];
+				dst[dstIndex + 2] = src[srcIndex + 2];
+
+				srcIndex += 3;
+			}
+		}
+	}
+
+	// Use UVs from the lightmap
+	for (auto& surface : zdraySurfaces)
+	{
+		auto& realSurface = Level->levelMesh->Surfaces[findSurfaceIndex(surface.type, surface.typeIndex, getControlSector(surface.controlSector))];
+
+		auto* UVs = &Level->levelMesh->LightmapUvs[realSurface.startUvIndex];
+		auto* newUVs = &zdrayUvs[surface.uvOffset];
+
+		for (uint32_t i = 0; i < surface.uvCount; ++i)
+		{
+			if (developer >= 5)
+			{
+				Printf("Old UV: %.6f %.6f (w:%d, h:%d) (x:%d, y:%d), Lump UVs %.3f %.3f\n", UVs[i].X, UVs[i].Y, realSurface.texWidth, realSurface.texHeight, realSurface.atlasX, realSurface.atlasY, newUVs[i].X, newUVs[i].Y);
+			}
+
+			// Finish surface
+			UVs[i].X = (newUVs[i].X + realSurface.atlasX) / textureSize;
+			UVs[i].Y = (newUVs[i].Y + realSurface.atlasY) / textureSize;
+
+			if (developer >= 5)
+			{
+				Printf("New UV: %.6f %.6f\n", UVs[i].X, UVs[i].Y);
+			}
+		}
+	}
+
+	if (developer >= 3)
+	{
+		int loadedSurfaces = 0;
+		for (auto& surface : Level->levelMesh->Surfaces)
+		{
+			if (!surface.needsUpdate)
+			{
+				loadedSurfaces++;
+			}
+		}
+
+		Printf(PRINT_HIGH, "%d/%d surfaces were successfully loaded from lightmap.\n", loadedSurfaces, Level->levelMesh->Surfaces.Size());
+	}
+
+	if (errors && developer <= 0)
+	{
+		Printf(PRINT_HIGH, "Pre-calculated LIGHTMAP surfaces do not match current level surfaces. Restart this level with 'developer 1' for further details.\nPerhaps you forget to rebuild lightmaps after modifying the map?\n");
+	}
 }
 
 //==========================================================================
@@ -2984,6 +3267,7 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 	Level->SunColor = FVector3(1.f, 1.f, 1.f);
 	Level->SunDirection = FVector3(0.45f, 0.3f, 0.9f);
 	Level->LightmapSampleDistance = 16;
+	Level->lightmaps = false;
 
 	// note: most of this ordering is important 
 	ForceNodeBuild = gennodes;
@@ -3263,7 +3547,7 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 	// set up world state
 	SpawnSpecials();
 
-	InitLevelMesh();
+	InitLevelMesh(map);
 
 	// disable reflective planes on sloped sectors.
 	for (auto &sec : Level->sectors)

@@ -55,6 +55,10 @@ struct LightmapImage
 		std::unique_ptr<VulkanFramebuffer> Framebuffer;
 		std::unique_ptr<VulkanDescriptorSet> DescriptorSet[2];
 	} blur;
+
+	// how much of the page is used?
+	uint16_t pageMaxX = 0;
+	uint16_t pageMaxY = 0;
 };
 
 struct SceneVertex
@@ -86,17 +90,17 @@ public:
 	VkLightmap(VulkanRenderDevice* fb);
 	~VkLightmap();
 
-	void Raytrace(LevelMesh* level);
-
+	void Raytrace(const TArray<LevelMeshSurface*>& surfaces);
+	void SetLevelMesh(LevelMesh* level);
 private:
 	void UpdateAccelStructDescriptors();
 
 	void UploadUniforms();
-	void CreateAtlasImages();
-	void RenderAtlasImage(size_t pageIndex);
+	void CreateAtlasImages(const TArray<LevelMeshSurface*>& surfaces);
+	void RenderAtlasImage(size_t pageIndex, const TArray<LevelMeshSurface*>& surfaces);
 	void ResolveAtlasImage(size_t pageIndex);
 	void BlurAtlasImage(size_t pageIndex);
-	void CopyAtlasImageResult(size_t pageIndex);
+	void CopyAtlasImageResult(size_t pageIndex, const TArray<LevelMeshSurface*>& surfaces);
 
 	LightmapImage CreateImage(int width, int height);
 
@@ -130,7 +134,7 @@ private:
 
 	struct
 	{
-		static const int BufferSize = 1 * 1024 * 1024;
+		const int BufferSize = 1 * 1024 * 1024;
 		std::unique_ptr<VulkanBuffer> Buffer;
 		SceneVertex* Vertices = nullptr;
 		int Pos = 0;
@@ -138,7 +142,7 @@ private:
 
 	struct
 	{
-		static const int BufferSize = 2 * 1024 * 1024;
+		const int BufferSize = 2 * 1024 * 1024;
 		std::unique_ptr<VulkanBuffer> Buffer;
 		LightInfo* Lights = nullptr;
 		int Pos = 0;

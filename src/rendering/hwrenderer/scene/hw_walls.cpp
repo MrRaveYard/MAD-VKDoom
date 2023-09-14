@@ -1019,7 +1019,7 @@ bool HWWall::SetWallCoordinates(seg_t * seg, FTexCoordInfo *tci, float textureto
 	if (lightmap && lightmap->Type != ST_UNKNOWN)
 	{
 		srclightuv = (texcoord*)lightmap->TexCoords;
-		lindex = (float)lightmap->LightmapNum;
+		lindex = (float)lightmap->atlasPageIndex;
 	}
 	else
 	{
@@ -1265,6 +1265,10 @@ void HWWall::DoTexture(HWDrawInfo *di, FRenderState& state, int _type,seg_t * se
 	if (seg->sidedef->lightmap && type >= RENDERWALL_TOP && type <= RENDERWALL_BOTTOM)
 	{
 		lightmap = seg->sidedef->lightmap[type - RENDERWALL_TOP];
+		if (lightmap)
+		{
+			state.PushVisibleSurface(lightmap);
+		}
 	}
 	else
 	{
@@ -1721,7 +1725,7 @@ void HWWall::BuildFFBlock(HWDrawInfo *di, FRenderState& state, seg_t * seg, F3DF
 		if (lightmap && lightmap->Type != ST_UNKNOWN)
 		{
 			srclightuv = (texcoord*)lightmap->TexCoords;
-			lindex = (float)lightmap->LightmapNum;
+			lindex = (float)lightmap->atlasPageIndex;
 		}
 		else
 		{

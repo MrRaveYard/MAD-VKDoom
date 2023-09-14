@@ -8,16 +8,17 @@
 #include "bounds.h"
 #include <dp_rect_pack.h>
 
+#include <set>
+
 typedef dp::rect_pack::RectPacker<int> RectPacker;
 
 struct FLevelLocals;
 
 struct DoomLevelMeshSurface : public LevelMeshSurface
 {
-	subsector_t* Subsector;
-	side_t* Side;
-	sector_t* ControlSector;
-	uint32_t LightmapNum; // To do: same as atlasPageIndex. Delete one of them!
+	subsector_t* Subsector = nullptr;
+	side_t* Side = nullptr;
+	sector_t* ControlSector = nullptr;
 	float* TexCoords;
 };
 
@@ -25,45 +26,47 @@ class DoomLevelMesh : public LevelMesh
 {
 public:
 	DoomLevelMesh(FLevelLocals &doomMap);
+	
+	void CreatePortals();
+	void DumpMesh(const FString& objFilename, const FString& mtlFilename) const;
+	void BindLightmapSurfacesToGeometry(FLevelLocals& doomMap);
 
 	bool TraceSky(const FVector3& start, FVector3 direction, float dist)
 	{
 		FVector3 end = start + direction * dist;
-		TraceHit hit = TriangleMeshShape::find_first_hit(Collision.get(), start, end);
-		if (hit.fraction == 1.0f)
-			return true;
-
-		int surfaceIndex = MeshSurfaceIndexes[hit.triangle];
-		return Surfaces[surfaceIndex].bSky;
+		auto surface = Trace(start, direction, dist);
+		return surface && surface->bSky;
 	}
 
 	void UpdateLightLists() override;
 
 	LevelMeshSurface* GetSurface(int index) override { return &Surfaces[index]; }
+	unsigned int GetSurfaceIndex(const LevelMeshSurface* surface) const override { return (unsigned int)(ptrdiff_t)(static_cast<const DoomLevelMeshSurface*>(surface) - Surfaces.Data()); }
 	int GetSurfaceCount() override { return Surfaces.Size(); }
 
+
 	TArray<DoomLevelMeshSurface> Surfaces;
-
+	std::vector<std::unique_ptr<LevelMeshLight>> Lights;
 	TArray<FVector2> LightmapUvs;
-
 	static_assert(alignof(FVector2) == alignof(float[2]) && sizeof(FVector2) == sizeof(float) * 2);
 
-	void DumpMesh(const FString& objFilename, const FString& mtlFilename) const;
+	// runtime utility variables
+	TMap<const sector_t*, TArray<DoomLevelMeshSurface*>> XFloorToSurface;
+	TMap<const sector_t*, TArray<DoomLevelMeshSurface*>> XFloorToSurfaceSides;
 
-	void SetupLightmapUvs();
-
-	void CreatePortals();
 private:
 	void CreateSubsectorSurfaces(FLevelLocals &doomMap);
-	void CreateCeilingSurface(FLevelLocals &doomMap, subsector_t *sub, sector_t *sector, int typeIndex, bool is3DFloor);
-	void CreateFloorSurface(FLevelLocals &doomMap, subsector_t *sub, sector_t *sector, int typeIndex, bool is3DFloor);
+	void CreateCeilingSurface(FLevelLocals& doomMap, subsector_t* sub, sector_t* sector, sector_t* controlSector, int typeIndex);
+	void CreateFloorSurface(FLevelLocals& doomMap, subsector_t* sub, sector_t* sector, sector_t* controlSector, int typeIndex);
 	void CreateSideSurfaces(FLevelLocals &doomMap, side_t *side);
 
-	void BindLightmapSurfacesToGeometry(FLevelLocals& doomMap);
 	void SetSubsectorLightmap(DoomLevelMeshSurface* surface);
 	void SetSideLightmap(DoomLevelMeshSurface* surface);
 
-	void CreateLightList(DoomLevelMeshSurface* surface, FLightNode* lighthead, int portalgroup);
+	void SetupLightmapUvs();
+	void PropagateLight(const LevelMeshLight* light, std::set<LevelMeshPortal, RecursivePortalComparator>& touchedPortals, int lightPropagationRecursiveDepth);
+	void CreateLightList();
+
 
 	static bool IsTopSideSky(sector_t* frontsector, sector_t* backsector, side_t* side);
 	static bool IsTopSideVisible(side_t* side);
@@ -76,6 +79,20 @@ private:
 		FVector3 n = ((pt2 - pt1) ^ (pt3 - pt2)).Unit();
 		float d = pt1 | n;
 		return FVector4(n.X, n.Y, n.Z, d);
+	}
+
+	static FVector4 ToPlane(const FVector3& pt1, const FVector3& pt2, const FVector3& pt3, const FVector3& pt4)
+	{
+		if (pt1.ApproximatelyEquals(pt3))
+		{
+			return ToPlane(pt1, pt2, pt4);
+		}
+		else if(pt1.ApproximatelyEquals(pt2) || pt2.ApproximatelyEquals(pt3))
+		{
+			return ToPlane(pt1, pt3, pt4);
+		}
+
+		return ToPlane(pt1, pt2, pt3);
 	}
 
 	static FVector2 ToFVector2(const DVector2& v) { return FVector2((float)v.X, (float)v.Y); }

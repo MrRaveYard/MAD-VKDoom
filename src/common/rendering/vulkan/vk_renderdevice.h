@@ -63,6 +63,7 @@ public:
 	void AmbientOccludeScene(float m5) override;
 	void SetSceneRenderTarget(bool useSSAO) override;
 	void SetLevelMesh(LevelMesh* mesh) override;
+	void UpdateLightmaps(const TArray<LevelMeshSurface*>& surfaces) override;
 	void SetShadowMaps(const TArray<float>& lights, hwrenderer::LevelAABBTree* tree, bool newTree) override;
 	void SetSaveBuffers(bool yes) override;
 	void ImageTransitionScene(bool unknown) override;
@@ -114,6 +115,9 @@ private:
 	VkRenderBuffers *mActiveRenderBuffers = nullptr;
 
 	bool mVSync = false;
+
+	LevelMesh* levelMesh = nullptr;
+	bool levelMeshChanged = true;
 };
 
 class CVulkanError : public CEngineError

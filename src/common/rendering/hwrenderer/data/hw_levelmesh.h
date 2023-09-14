@@ -7,6 +7,7 @@
 #include "bounds.h"
 #include "common/utility/matrix.h"
 #include <memory>
+#include <cstring>
 
 #include <dp_rect_pack.h>
 
@@ -52,11 +53,12 @@ struct LevelMeshSurface
 	int texWidth = 0;
 	int texHeight = 0;
 
+	bool needsUpdate = true;
+
 	//
 	// Required for internal lightmapper:
 	//
 	
-	// int portalDestinationIndex = -1; // line or sector index
 	int portalIndex = 0;
 	int sectorGroup = 0;
 
@@ -77,14 +79,17 @@ struct LevelMeshSurface
 	int smoothingGroupIndex = -1;
 
 	//
+	// Utility/Info
+	//
+	inline uint32_t Area() const { return texWidth * texHeight; }
+
+	//
 	// VkLightmap extra stuff that I dislike:
 	//
 	TArray<FVector3> verts;
-	TArray<FVector2> uvs;
 
 	// Touching light sources
-	std::vector<LevelMeshLight*> LightList;
-	std::vector<LevelMeshLight> LightListBuffer;
+	std::vector<const LevelMeshLight*> LightList;
 
 	// Lightmapper has a lot of additional padding around the borders
 	int lightmapperAtlasPage = -1;
@@ -92,6 +97,10 @@ struct LevelMeshSurface
 	int lightmapperAtlasY = -1;
 };
 
+inline float IsInFrontOfPlane(const FVector4& plane, const FVector3& point)
+{
+	return (plane.X * point.X + plane.Y * point.Y + plane.Z * point.Z) >= plane.W;
+}
 
 struct LevelMeshSmoothingGroup
 {
@@ -166,6 +175,15 @@ struct IdenticalPortalComparator
 	}
 };
 
+struct LevelMeshSurfaceStats
+{
+	struct Stats
+	{
+		uint32_t total = 0, dirty = 0, sky = 0;
+	};
+
+	Stats surfaces, pixels;
+};
 
 class LevelMesh
 {
@@ -187,24 +205,97 @@ public:
 	std::unique_ptr<TriangleMeshShape> Collision;
 
 	virtual LevelMeshSurface* GetSurface(int index) { return nullptr; }
+	virtual unsigned int GetSurfaceIndex(const LevelMeshSurface* surface) const { return 0xffffffff; }
 	virtual int GetSurfaceCount() { return 0; }
 
 	virtual void UpdateLightLists() { }
 
-	TArray<LevelMeshSmoothingGroup> SmoothingGroups; // TODO fill
-	TArray<LevelMeshPortal> Portals; // TODO fill
+	TArray<LevelMeshSmoothingGroup> SmoothingGroups;
+	TArray<LevelMeshPortal> Portals;
 
+	// Lightmap atlas
 	int LMTextureCount = 0;
 	int LMTextureSize = 0;
+	TArray<uint16_t> LMTextureData; // TODO better place for this?
 
+	inline uint32_t AtlasPixelCount() const { return uint32_t(LMTextureCount * LMTextureSize * LMTextureSize); }
+	inline LevelMeshSurfaceStats GatherSurfacePixelStats() //const
+	{
+		LevelMeshSurfaceStats stats;
+
+		int count = GetSurfaceCount();
+		for (int i = 0; i < count; ++i)
+		{
+			const auto* surface = GetSurface(i);
+			auto area = surface->Area();
+
+			stats.pixels.total += area;
+
+			if (surface->needsUpdate)
+			{
+				stats.surfaces.dirty++;
+				stats.pixels.dirty += area;
+			}
+			if (surface->bSky)
+			{
+				stats.surfaces.sky++;
+				stats.pixels.sky += area;
+			}
+		}
+
+		stats.surfaces.total = count;
+		return stats;
+	}
+
+	// Map defaults
 	FVector3 SunDirection = FVector3(0.0f, 0.0f, -1.0f);
 	FVector3 SunColor = FVector3(0.0f, 0.0f, 0.0f);
 	uint16_t LightmapSampleDistance = 16;
 
-	bool Trace(const FVector3& start, FVector3 direction, float maxDist)
+	LevelMeshSurface* Trace(const FVector3& start, FVector3 direction, float maxDist)
 	{
-		FVector3 end = start + direction * std::max(maxDist - 10.0f, 0.0f);
-		return !TriangleMeshShape::find_any_hit(Collision.get(), start, end);
+		maxDist = std::max(maxDist - 10.0f, 0.0f);
+
+		FVector3 origin = start;
+		FVector3 end;
+
+		auto collision = Collision.get();
+
+		LevelMeshSurface* hitSurface = nullptr;
+
+		while (true)
+		{
+			end = origin + direction * maxDist;
+
+			auto hit = TriangleMeshShape::find_first_hit(collision, origin, end);
+
+			if (hit.triangle < 0)
+			{
+				return nullptr;
+			}
+
+			hitSurface = GetSurface(MeshSurfaceIndexes[hit.triangle]);
+			auto portal = hitSurface->portalIndex;
+
+			if (!portal)
+			{
+				break;
+			}
+
+			auto& transformation = Portals[portal];
+
+			auto travelDist = hit.fraction * maxDist + 2.0f;
+			if (travelDist >= maxDist)
+			{
+				break;
+			}
+
+			origin = transformation.TransformPosition(origin + direction * travelDist);
+			direction = transformation.TransformRotation(direction);
+			maxDist -= travelDist;
+		}
+
+		return hitSurface; // I hit something
 	}
 
 	void BuildSmoothingGroups()

@@ -465,6 +465,30 @@ TArray<uint8_t> VulkanRenderDevice::GetScreenshotBuffer(int &pitch, ESSType &col
 
 void VulkanRenderDevice::BeginFrame()
 {
+	if (levelMeshChanged)
+	{
+		levelMeshChanged = false;
+		mRaytrace->SetLevelMesh(levelMesh);
+
+		if (levelMesh && levelMesh->GetSurfaceCount() > 0)
+		{
+			levelMesh->UpdateLightLists();
+			GetTextureManager()->CreateLightmap(levelMesh->LMTextureSize, levelMesh->LMTextureCount, std::move(levelMesh->LMTextureData));
+			GetLightmap()->SetLevelMesh(levelMesh);
+
+#if 0 // full lightmap generation
+			TArray<LevelMeshSurface*> surfaces;
+			surfaces.Reserve(mesh->GetSurfaceCount());
+			for (unsigned i = 0, count = mesh->GetSurfaceCount(); i < count; ++i)
+			{
+				surfaces[i] = mesh->GetSurface(i);
+			}
+
+			GetLightmap()->Raytrace(surfaces);
+#endif
+		}
+	}
+
 	SetViewportRects(nullptr);
 	mCommands->BeginFrame();
 	mTextureManager->BeginFrame();
@@ -531,17 +555,15 @@ void VulkanRenderDevice::PrintStartupLog()
 
 void VulkanRenderDevice::SetLevelMesh(LevelMesh* mesh)
 {
-	mRaytrace->SetLevelMesh(mesh);
+	levelMesh = mesh;
+	levelMeshChanged = true;
+}
 
-	static LevelMesh* lastMesh = nullptr; // Temp hack; Since this function is called every frame we only want to do this once
-	if (lastMesh != mesh && mesh->GetSurfaceCount() > 0)
+void VulkanRenderDevice::UpdateLightmaps(const TArray<LevelMeshSurface*>& surfaces)
+{
+	if (surfaces.Size() > 0 && levelMesh)
 	{
-		lastMesh = mesh;
-
-		mesh->UpdateLightLists();
-
-		GetTextureManager()->CreateLightmap(mesh->LMTextureSize, mesh->LMTextureCount);
-		GetLightmap()->Raytrace(mesh);
+		GetLightmap()->Raytrace(surfaces);
 	}
 }
 
