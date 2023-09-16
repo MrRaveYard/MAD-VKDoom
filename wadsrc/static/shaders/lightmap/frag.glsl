@@ -97,6 +97,74 @@ bool TracePoint(vec3 origin, vec3 target, float tmin, vec3 dir, float tmax);
 int TraceFirstHitTriangle(vec3 origin, float tmin, vec3 dir, float tmax);
 int TraceFirstHitTriangleT(vec3 origin, float tmin, vec3 dir, float tmax, out float t);
 
+
+
+float SoftwareColormap(float light, float z)
+{
+	float L = light * 255.0;
+	float vis = 8.0 / 32.0;
+	float shade = 2.0 - (L + 12.0) / 128.0;
+	float lightscale = shade - vis;
+	return lightscale * 31.0;
+}
+
+float Lightmode_Software(float uLightLevel)
+{
+	// z is the depth in view space, positive going into the 
+	float z = 384.0;
+
+	float colormap = SoftwareColormap(uLightLevel, z);
+
+#if defined(SWLIGHT_BANDED)
+	colormap = floor(colormap) + 0.5;
+#endif
+
+	// Result is the normalized colormap index (0 bright .. 1 dark)
+	float newlightlevel = 1.0 - clamp(colormap, 0.0, 31.0) / 32.0;
+	return newlightlevel;
+}
+
+float calcBrightness(vec3 origin, vec3 normal)
+{
+	const float thisBrightness = surfaces[SurfaceIndex].Brightness;
+
+	const float minDistance = 0.001;
+	const float aoDistance = 128;
+	const int SampleCount = 128;
+
+	vec3 N = -normal;
+	vec3 up = abs(N.x) < abs(N.y) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+	vec3 tangent = normalize(cross(up, N));
+	vec3 bitangent = cross(N, tangent);
+
+	float Samples = 1.0;
+	float ambience = thisBrightness;
+	for (uint i = 0; i < SampleCount; i++)
+	{
+		vec2 Xi = Hammersley(i, SampleCount);
+		vec3 H = normalize(vec3(Xi.x * 2.0f - 1.0f, Xi.y * 2.0f - 1.0f, 1.5 - length(Xi)));
+		vec3 L = H.x * tangent + H.y * bitangent + H.z * N;
+
+		float hitDistance;
+		int primitiveID = TraceFirstHitTriangleT(origin, minDistance, L, aoDistance, hitDistance);
+		if (primitiveID != -1)
+		{
+			SurfaceInfo surface = surfaces[surfaceIndices[primitiveID]];
+			if (surface.Sky == 0.0)
+			{
+				Samples = Samples + 1.0f;
+				ambience += mix(surface.Brightness, thisBrightness, clamp(hitDistance / aoDistance, 0.0, 1.0));
+			}
+		}
+	}
+
+	float fogfactor = exp2(1 * (-1.442692f / 64000.f)); // estimated default light
+	//return pow(mix(0, ambience / float(Samples), 1.0), 2.5);
+
+	//float colormap = VanillaColormap(ambience / float(Samples), 22);
+	return Lightmode_Software(ambience / Samples);
+}
+
 void main()
 {
 	vec3 normal = surfaces[SurfaceIndex].Normal;
@@ -113,7 +181,10 @@ void main()
 	incoming.rgb *= TraceAmbientOcclusion(origin, normal);
 #endif
 
-	fragcolor = vec4(vec3(surfaces[SurfaceIndex].Brightness) + incoming, 1.0);
+	fragcolor = vec4(
+		vec3(
+			calcBrightness(origin + normal * 16, normal)
+		) + incoming, 1.0);
 }
 
 vec3 TraceLight(vec3 origin, vec3 normal, LightInfo light)
