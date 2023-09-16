@@ -97,6 +97,8 @@ CVAR (Bool, genblockmap, false, CVAR_SERVERINFO|CVAR_GLOBALCONFIG);
 CVAR (Bool, gennodes, false, CVAR_SERVERINFO|CVAR_GLOBALCONFIG);
 CVAR (Bool, genlightmaps, true, CVAR_GLOBALCONFIG);
 
+CVAR (Color, lm_suncolor, 0xFFFFFF, CVAR_GLOBALCONFIG);
+
 inline bool P_LoadBuildMap(uint8_t *mapdata, size_t len, FMapThing **things, int *numthings)
 {
 	return false;
@@ -3341,10 +3343,16 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 	const int *oldvertextable  = nullptr;
 
 	// Reset defaults for lightmapping
-	Level->SunColor = FVector3(1.f, 1.f, 1.f);
-	Level->SunDirection = FVector3(0.45f, 0.3f, 0.9f);
-	Level->LightmapSampleDistance = 16;
-	Level->lightmaps = false;
+	{
+		auto r = (*lm_suncolor >> 16) & 0xFF;
+		auto g = (*lm_suncolor >> 8) & 0xFF;
+		auto b = *lm_suncolor & 0xFF;
+
+		Level->SunColor = FVector3(float(r) / 255.0f, float(g) / 255.0f, float(b) / 255.0f);
+		Level->SunDirection = FVector3(0.45f, 0.3f, 0.9f);
+		Level->LightmapSampleDistance = 16;
+		Level->lightmaps = false;
+	}
 
 	// note: most of this ordering is important 
 	ForceNodeBuild = gennodes;

@@ -32,6 +32,14 @@ vec4 getLightColor(Material material)
 	#endif
 
 	//
+	// apply lightmaps
+	//
+	if (vLightmap.z >= 0.0)
+	{
+		color.rgb = texture(LightMap, vLightmap).rgb;
+	}
+
+	//
 	// handle glowing walls
 	//
 	if (uGlowTopColor.a > 0.0 && glowdist.x < uGlowTopColor.a)
@@ -56,14 +64,6 @@ vec4 getLightColor(Material material)
 	//
 	color.rgb = min(color.rgb + material.Bright.rgb, 1.0);
 #endif
-
-	//
-	// apply lightmaps
-	//
-	if (vLightmap.z >= 0.0)
-	{
-		color.rgb += texture(LightMap, vLightmap).rgb;
-	}
 
 	//
 	// apply dynamic lights

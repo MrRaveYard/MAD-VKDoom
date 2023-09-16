@@ -39,7 +39,8 @@ struct SurfaceInfo
 	float Sky;
 	float SamplingDistance;
 	uint PortalIndex;
-	float Padding1, Padding2;
+	float Brightness;
+	float Padding1;
 };
 
 struct PortalInfo
@@ -112,7 +113,7 @@ void main()
 	incoming.rgb *= TraceAmbientOcclusion(origin, normal);
 #endif
 
-	fragcolor = vec4(incoming, 1.0);
+	fragcolor = vec4(vec3(surfaces[SurfaceIndex].Brightness) + incoming, 1.0);
 }
 
 vec3 TraceLight(vec3 origin, vec3 normal, LightInfo light)

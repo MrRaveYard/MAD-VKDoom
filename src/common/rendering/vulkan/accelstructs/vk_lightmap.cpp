@@ -148,11 +148,11 @@ void VkLightmap::RenderBakeImage()
 		auto& selectedSurface = selectedSurfaces[i];
 		LevelMeshSurface* targetSurface = selectedSurface.Surface;
 
-		if (targetSurface->LightList.empty() && (targetSurface->plane.XYZ() | mesh->SunDirection) < 0.0f) // No lights, no sun
+		/*if (targetSurface->LightList.empty() && (targetSurface->plane.XYZ() | mesh->SunDirection) < 0.0f) // No lights, no sun
 		{
 			selectedSurface.Rendered = true;
 			continue;
-		}
+		}*/
 
 		VkViewport viewport = {};
 		viewport.maxDepth = 1;

@@ -121,6 +121,7 @@ void VkRaytrace::CreateBuffers()
 		info.PortalIndex = surface->portalIndex;
 		info.SamplingDistance = (float)surface->sampleDimension;
 		info.Sky = surface->bSky;
+		info.Brightness = float(surface->brightness) / 255.0f;
 		surfaceInfo.Push(info);
 	}
 

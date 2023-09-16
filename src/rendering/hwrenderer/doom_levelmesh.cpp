@@ -71,6 +71,7 @@ void PrintSurfaceInfo(const DoomLevelMeshSurface* surface)
 	Printf("    Pixels: %dx%d (area: %d)\n", surface->texWidth, surface->texHeight, surface->Area());
 	Printf("    Sample dimension: %d\n", surface->sampleDimension);
 	Printf("    Needs update?: %d\n", surface->needsUpdate);
+	Printf("    Brightness: %d\n", surface->brightness);
 }
 
 FVector3 RayDir(FAngle angle, FAngle pitch)
@@ -260,6 +261,25 @@ void DoomLevelMesh::CreatePortals()
 		else
 		{
 			surface.portalIndex = 0;
+		}
+	}
+
+	//
+	// last brightness check
+	//
+
+	for (auto& surface : Surfaces)
+	{
+		if (surface.Type == ST_FLOOR || surface.Type == ST_CEILING)
+		{
+			subsector_t* sec = surface.Subsector;
+
+			surface.brightness = sec->sector->GetLightLevel();
+			//sec->sector->planes[surface.Type == ST_FLOOR ? sector_t::floor : sector_t::ceiling];
+		}
+		else
+		{
+			surface.brightness = surface.Side->sector->GetLightLevel();
 		}
 	}
 }

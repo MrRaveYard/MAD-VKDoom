@@ -33,7 +33,8 @@ struct SurfaceInfo
 	float Sky;
 	float SamplingDistance;
 	uint32_t PortalIndex;
-	float Padding1, Padding2;
+	float Brightness;
+	float Padding1;
 };
 
 struct PortalInfo
