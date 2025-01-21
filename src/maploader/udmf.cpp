@@ -519,6 +519,7 @@ public:
 		th->Health = 1;
 		th->FloatbobPhase = -1;
 		th->SoftShadowRadius = -1.0;
+		th->LightShadowMinQuality = 1; // default medium, 0 = low, 1 = medium, 2 = high, 3 = ultra
 		sc.MustGetToken('{');
 		while (!sc.CheckToken('}'))
 		{
@@ -812,6 +813,11 @@ public:
 				th->LightDontLightMap = CheckBool(key);
 				break;
 
+			case NAME_light_shadowminquality:
+				th->LightHasShadowMinQuality = true;
+				th->LightShadowMinQuality = std::clamp(CheckInt(key), 0, 4);
+				break;
+
 			case NAME_lm_suncolor:
 				CHECK_N(Zd | Zdt)
 				if (CheckInt(key) < 0 || CheckInt(key) > 0xFFFFFF)
@@ -824,6 +830,10 @@ public:
 					Level->SunColor = FVector3(float((n >> 16) & 0xFF) / 0xFF, float((n >> 8) & 0xFF) / 0xFF, float(n & 0xFF) / 0xFF);
 				}
 				break;
+			case NAME_lm_sunintensity:
+				CHECK_N(Zd | Zdt)
+				Level->SunIntensity = CheckFloat(key);
+				break;
 			case NAME_lm_sampledist:
 				CHECK_N(Zd | Zdt)
 				if (CheckInt(key) < LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MIN || CheckInt(key) > LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MAX)
@@ -832,6 +842,14 @@ public:
 						CheckInt(key), LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MIN, LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MAX);
 				}
 				Level->LightmapSampleDistance = CheckInt(key);
+				break;
+
+			case NAME_lm_bounce:
+				Level->LightBounce = CheckBool(key);
+				break;
+
+			case NAME_lm_ao:
+				Level->AmbientOcclusion = CheckBool(key);
 				break;
 
 			default:

@@ -78,7 +78,11 @@ static void MarkTilesForUpdate(FLevelLocals * Level, const TArrayView<int> &tile
 	{
 		if(i >= 0)
 		{
-			Level->levelMesh->Lightmap.Tiles[i].NeedsUpdate = true;
+			auto &tile = Level->levelMesh->Lightmap.Tiles[i];
+			if(tile.AlwaysUpdate == 0 && !tile.NeedsUpdate)
+			{
+				tile.AlwaysUpdate = 3;
+			}
 		}
 	}
 }
@@ -96,7 +100,7 @@ static void MarkTilesForUpdate(FLevelLocals * Level, FLightNode * touching_sides
 	
 		while(touching_sector)
 		{
-			for(subsector_t * ss : static_cast<FSection *>(touching_sector->targ)->subsectors)
+			for(subsector_t * ss : touching_sector->targSection->subsectors)
 			{
 				MarkTilesForUpdate(Level, ss->LightmapTiles[0]);
 				MarkTilesForUpdate(Level, ss->LightmapTiles[1]);
@@ -130,6 +134,7 @@ static FDynamicLight *GetLight(FLevelLocals *Level)
 	ret->mShadowmapIndex = 1024;
 	ret->Level = Level;
 	ret->Pos.X = -10000000;	// not a valid coordinate.
+
 	return ret;
 }
 
@@ -155,6 +160,7 @@ void AttachLight(AActor *self)
 	light->pSpotOuterAngle = &self->AngleVar(NAME_SpotOuterAngle);
 	light->pPitch = &self->Angles.Pitch;
 	light->pLightFlags = (LightFlags*)&self->IntVar(NAME_lightflags);
+	light->shadowMinQuality = std::clamp(self->IntVar(NAME_shadowMinQuality), 0, 4);
 	light->pArgs = self->args;
 	light->pSoftShadowRadius = &self->FloatVar(NAME_SoftShadowRadius);
 	light->pLinearity = &self->FloatVar(NAME_LightLinearity);
@@ -421,17 +427,43 @@ void FDynamicLight::Tick()
 		lightStrength = LightCalcStrength(m_currentRadius);
 	}
 
-	bool updated = UpdateLocation();
+	updated = UpdateLocation();
 
-	if(!updated && markTiles && (m_active != wasactive || oldred != GetRed() || oldblue != GetBlue() || oldgreen != GetGreen()))
+	if(!updated && (m_active != wasactive || oldred != GetRed() || oldblue != GetBlue() || oldgreen != GetGreen() || oldradius != m_currentRadius))
 	{
-		MarkTilesForUpdate(Level, touching_sides, touching_sector);
+		if(markTiles)
+		{
+			MarkTilesForUpdate(Level, touching_sides, touching_sector);
+		}
 
-		wasactive = m_active;
-		oldred = GetRed();
-		oldblue = GetBlue();
-		oldgreen = GetGreen();
+		updated = true;
 	}
+
+	if(TraceActors())
+	{
+		if(updated)
+		{
+			ActorList.Clear();
+		}
+		else if(ActorList.Size() > 0)
+		{
+			unsigned i = ActorList.Size() - 1;
+			while(i > 0)
+			{
+				if(ActorList[i]->ObjectFlags & OF_EuthanizeMe)
+				{
+					ActorList.Delete(i);
+					ActorResult.Delete(i);
+				}
+				i--;
+			}
+		}
+	}
+
+	wasactive = m_active;
+	oldred = GetRed();
+	oldblue = GetBlue();
+	oldgreen = GetGreen();
 }
 
 
@@ -747,7 +779,7 @@ void FDynamicLight::CollectWithinRadius(const DVector3 &opos, FSection *section,
 			}
 		}
 	}
-	shadowmapped = hitonesidedback && !DontShadowmap();
+	shadowmapped = hitonesidedback && !DontShadowmap() && shadowMinQuality <= gl_light_shadow_max_quality;
 }
 
 //==========================================================================
@@ -758,6 +790,8 @@ void FDynamicLight::CollectWithinRadius(const DVector3 &opos, FSection *section,
 
 void FDynamicLight::LinkLight()
 {
+	bool markTiles = (Trace() && Level->levelMesh);
+
 	// mark the old light nodes
 	FLightNode * node;
 	
@@ -787,27 +821,62 @@ void FDynamicLight::LinkLight()
 		
 	// Now delete any nodes that won't be used. These are the ones where
 	// m_thing is still nullptr.
-	
-	node = touching_sides;
-	while (node)
-	{
-		if (node->lightsource == nullptr)
-		{
-			node = DeleteLightNode(node);
-		}
-		else
-			node = node->nextTarget;
-	}
 
-	node = touching_sector;
-	while (node)
+	if(markTiles)
 	{
-		if (node->lightsource == nullptr)
+		node = touching_sides;
+		while (node)
 		{
-			node = DeleteLightNode(node);
+			if (node->lightsource == nullptr)
+			{
+				MarkTilesForUpdate(Level, node->targLine->LightmapTiles);
+
+				node = DeleteLightNode(node);
+			}
+			else
+				node = node->nextTarget;
 		}
-		else
-			node = node->nextTarget;
+
+		node = touching_sector;
+		while (node)
+		{
+			if (node->lightsource == nullptr)
+			{
+				for(subsector_t * ss : node->targSection->subsectors)
+				{
+					MarkTilesForUpdate(Level, ss->LightmapTiles[0]);
+					MarkTilesForUpdate(Level, ss->LightmapTiles[1]);
+				}
+
+				node = DeleteLightNode(node);
+			}
+			else
+				node = node->nextTarget;
+		}
+	}
+	else
+	{
+		node = touching_sides;
+		while (node)
+		{
+			if (node->lightsource == nullptr)
+			{
+				node = DeleteLightNode(node);
+			}
+			else
+				node = node->nextTarget;
+		}
+
+		node = touching_sector;
+		while (node)
+		{
+			if (node->lightsource == nullptr)
+			{
+				node = DeleteLightNode(node);
+			}
+			else
+				node = node->nextTarget;
+		}
 	}
 }
 
@@ -831,7 +900,7 @@ void FDynamicLight::UnlinkLight ()
 
 		while (touching_sector)
 		{
-			for(subsector_t * ss : static_cast<FSection *>(touching_sector->targ)->subsectors)
+			for(subsector_t * ss : touching_sector->targSection->subsectors)
 			{
 				MarkTilesForUpdate(Level, ss->LightmapTiles[0]);
 				MarkTilesForUpdate(Level, ss->LightmapTiles[1]);

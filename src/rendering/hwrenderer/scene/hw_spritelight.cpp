@@ -39,6 +39,7 @@
 #include "hwrenderer/scene/hw_drawstructs.h"
 #include "models.h"
 #include <cmath>	// needed for std::floor on mac
+#include "hw_cvars.h"
 
 template<class T>
 T smoothstep(const T edge0, const T edge1, const T x)
@@ -55,55 +56,61 @@ public:
 		if (Actor && (Actor->Pos() != Actor->StaticLightsTraceCache.Pos || (Actor->Sector && (Actor->Sector->Flags & SECF_LM_DYNAMIC) && lm_dynamic)))
 		{
 			Actor->StaticLightsTraceCache.Pos = Actor->Pos();
-			Actor->StaticLightsTraceCache.Bits = 0;
+			Actor->StaticLightsTraceCache.SunResult = false;
 			ActorMoved = true;
 		}
 	}
 
-	bool TraceLightVisbility(FLightNode* node, const FVector3& L, float dist)
+	bool TraceLightVisbility(FLightNode* node, const FVector3& L, float dist, bool ignoreCache)
 	{
 		FDynamicLight* light = node->lightsource;
 		if (!light->TraceActors() || !level.levelMesh || !Actor)
 			return true;
 
-		if (!ActorMoved && CurrentBit < 64)
+		unsigned index = light->ActorList.SortedFind(Actor, false);
+
+		if (!ignoreCache && !ActorMoved && index < light->ActorList.Size() && light->ActorList[index] == Actor)
 		{
-			bool traceResult = (Actor->StaticLightsTraceCache.Bits >> CurrentBit) & 1;
-			CurrentBit++;
+			bool traceResult = light->ActorResult[index];
 			return traceResult;
 		}
 		else
 		{
+
 			bool traceResult = !level.levelMesh->Trace(FVector3((float)light->Pos.X, (float)light->Pos.Y, (float)light->Pos.Z), FVector3(-L.X, -L.Y, -L.Z), dist);
-			Actor->StaticLightsTraceCache.Bits |= ((uint64_t)traceResult) << CurrentBit;
-			CurrentBit++;
+			if(index == light->ActorList.Size() || light->ActorList[index] != Actor)
+			{
+				light->ActorList.Insert(index, Actor);
+				light->ActorResult.Insert(index, traceResult);
+			}
+			else
+			{
+				light->ActorResult[index] = traceResult;
+			}
 			return traceResult;
 		}
 	}
 
-	bool TraceSunVisibility(float x, float y, float z)
+	static bool TraceSunVisibility(float x, float y, float z, sun_trace_cache_t *cache, bool moved)
 	{
-		if (!level.lightmaps || !Actor)
+		if (!level.lightmaps || !cache)
 			return false;
 
-		if (!ActorMoved && CurrentBit < 64)
+		if (!moved)
 		{
-			bool traceResult = (Actor->StaticLightsTraceCache.Bits >> CurrentBit) & 1;
-			CurrentBit++;
+			bool traceResult = cache->SunResult;
 			return traceResult;
 		}
 		else
 		{
 			bool traceResult = level.levelMesh->TraceSky(FVector3(x, y, z), level.SunDirection, 65536.0f);
-			Actor->StaticLightsTraceCache.Bits |= ((uint64_t)traceResult) << CurrentBit;
-			CurrentBit++;
+			cache->SunResult = traceResult;
 			return traceResult;
 		}
 	}
 
 	AActor* Actor;
 	bool ActorMoved = false;
-	int CurrentBit = 0;
 };
 
 //==========================================================================
@@ -120,9 +127,9 @@ float inverseSquareAttenuation(float dist, float radius, float strength)
 	return (b * b) / (dist * dist + 1.0) * strength;
 }
 
-void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FLightNode *node, int portalgroup, float *out, bool fullbright)
+void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright)
 {
-	if (fullbright)
+	if (fullbright || get_gl_spritelight() > 0)
 		return;
 
 	FDynamicLight *light;
@@ -133,11 +140,16 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FLig
 
 	ActorTraceStaticLight staticLight(self);
 
-	if (staticLight.TraceSunVisibility(x, y, z))
+	if (ActorTraceStaticLight::TraceSunVisibility(x, y, z, traceCache, (self ? staticLight.ActorMoved : traceCache ? traceCache->Pos != DVector3(x, y, z) : false)))
 	{
-		out[0] = Level->SunColor.X;
-		out[1] = Level->SunColor.Y;
-		out[2] = Level->SunColor.Z;
+		if(!self && traceCache)
+		{
+			traceCache->Pos = DVector3(x, y, z);
+		}
+
+		out[0] = Level->SunColor.X * Level->SunIntensity;
+		out[1] = Level->SunColor.Y * Level->SunIntensity;
+		out[2] = Level->SunColor.Z * Level->SunIntensity;
 	}
 
 	// Go through both light lists
@@ -173,10 +185,10 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FLig
 			{
 				dist = sqrtf(dist);	// only calculate the square root if we really need it.
 
-				if (light->IsSpot() || light->Trace())
+				if (light->IsSpot() || light->TraceActors())
 					L *= -1.0f / dist;
 
-				if (staticLight.TraceLightVisbility(node, L, dist))
+				if (staticLight.TraceLightVisbility(node, L, dist, light->updated))
 				{
 					if(level.info->lightattenuationmode == ELightAttenuationMode::INVERSE_SQUARE)
 					{
@@ -233,20 +245,20 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FLig
 	}
 }
 
-void HWDrawInfo::GetDynSpriteLight(AActor *thing, particle_t *particle, float *out)
+void HWDrawInfo::GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trace_cache_t * traceCache, float *out)
 {
-	if (thing != NULL)
+	if (thing)
 	{
-		GetDynSpriteLight(thing, (float)thing->X(), (float)thing->Y(), (float)thing->Center(), thing->section->lighthead, thing->Sector->PortalGroup, out, (thing->flags5 & MF5_BRIGHT));
+		GetDynSpriteLight(thing, &thing->StaticLightsTraceCache, thing->X(), thing->Y(), thing->Center(), thing->section->lighthead, thing->Sector->PortalGroup, out, (thing->flags5 & MF5_BRIGHT));
 	}
-	else if (particle != NULL)
+	else if (particle)
 	{
-		GetDynSpriteLight(NULL, (float)particle->Pos.X, (float)particle->Pos.Y, (float)particle->Pos.Z, particle->subsector->section->lighthead, particle->subsector->sector->PortalGroup, out, (particle->flags & SPF_FULLBRIGHT));
+		GetDynSpriteLight(nullptr, traceCache, particle->Pos.X, particle->Pos.Y, particle->Pos.Z, particle->subsector->section->lighthead, particle->subsector->sector->PortalGroup, out, (particle->flags & SPF_FULLBRIGHT));
 	}
 }
 
 
-void hw_GetDynModelLight(HWDrawContext* drawctx, AActor *self, FDynLightData &modellightdata)
+void HWDrawInfo::GetDynSpriteLightList(AActor *self, FDynLightData &modellightdata, bool isModel)
 {
 	modellightdata.Clear();
 
@@ -268,9 +280,17 @@ void hw_GetDynModelLight(HWDrawContext* drawctx, AActor *self, FDynLightData &mo
 
 		ActorTraceStaticLight staticLight(self);
 
-		if (staticLight.TraceSunVisibility(x, y, z))
+		int gl_spritelight = get_gl_spritelight();
+
+		if(isModel && gl_fakemodellight)
 		{
-			AddSunLightToList(modellightdata, x, y, z, self->Level->SunDirection, self->Level->SunColor);
+			//fake light for contrast
+			AddSunLightToList(modellightdata, x, y, z, FVector3(self->Level->SunDirection.X + 180, 45, 0), self->Level->SunColor * self->Level->SunIntensity * 0.05, false);
+		}
+
+		if ((level.lightmaps && gl_spritelight > 0) || ActorTraceStaticLight::TraceSunVisibility(x, y, z, (self ? &self->StaticLightsTraceCache : nullptr), (self ? staticLight.ActorMoved : false)))
+		{
+			AddSunLightToList(modellightdata, x, y, z, self->Level->SunDirection, self->Level->SunColor * self->Level->SunIntensity, gl_spritelight > 0);
 		}
 
 		BSPWalkCircle(self->Level, x, y, radiusSquared, [&](subsector_t *subsector) // Iterate through all subsectors potentially touched by actor
@@ -292,19 +312,20 @@ void hw_GetDynModelLight(HWDrawContext* drawctx, AActor *self, FDynLightData &mo
 					double distSquared = dx * dx + dy * dy + dz * dz;
 					if (distSquared < radius * radius) // Light and actor touches
 					{
-						if (std::find(addedLights.begin(), addedLights.end(), light) == addedLights.end()) // Check if we already added this light from a different subsector
+						unsigned index = addedLights.SortedFind(light, false);
+						if(index == addedLights.Size() || addedLights[index] != light) // Check if we already added this light from a different subsector (use binary search instead of linear search)
 						{
 							FVector3 L(dx, dy, dz);
 							float dist = sqrtf(distSquared);
-							if (light->Trace())
+							if (gl_spritelight == 0 && light->TraceActors())
 								L *= 1.0f / dist;
 
-							if (staticLight.TraceLightVisbility(node, L, dist))
+							if (gl_spritelight > 0 || staticLight.TraceLightVisbility(node, L, dist, light->updated))
 							{
-								AddLightToList(modellightdata, group, light, true);
+								AddLightToList(modellightdata, group, light, true, gl_spritelight > 0);
 							}
 
-							addedLights.Push(light);
+							addedLights.Insert(index, light);
 						}
 					}
 				}

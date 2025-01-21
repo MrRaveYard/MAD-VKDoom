@@ -106,9 +106,10 @@ const char *GetVersionString();
 #define VR3D_ENABLED
 
 // More stuff that needs to be different for derivatives.
-#define GAMENAME "MAD-VKDoom"
-#define WGAMENAME L"MAD-VKDoom"
+#define GAMENAME "VKDoom"
+#define WGAMENAME L"VKDoom"
 #define GAMENAMELOWERCASE "mad-vkdoom"
+#define TOOLNAMELOWERCASE "mad-vktool"
 #define QUERYIWADDEFAULT true
 //#define FORUM_URL "http://forum.zdoom.org/"
 //#define BUGS_FORUM_URL	"http://forum.zdoom.org/viewforum.php?f=2"
@@ -128,5 +129,7 @@ const int SAVEPICHEIGHT = 162;
 const int VID_MIN_WIDTH = 320;
 const int VID_MIN_HEIGHT = 200;
 
+// Lightmap lump version
+#define LIGHTMAPVER 4
 
 #endif //__VERSION_H__

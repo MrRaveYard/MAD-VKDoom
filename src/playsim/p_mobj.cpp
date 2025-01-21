@@ -6248,6 +6248,12 @@ AActor *FLevelLocals::SpawnMapThing (FMapThing *mthing, int position)
 		{
 			mobj->IntVar(NAME_lightflags) |= LF_DONTLIGHTMAP;
 		}
+
+		if (mthing->LightHasShadowMinQuality)
+		{
+			mobj->IntVar(NAME_shadowMinQuality) = mthing->LightShadowMinQuality;
+		}
+
 	}
 
 	mobj->CallBeginPlay ();

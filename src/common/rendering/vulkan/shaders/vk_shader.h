@@ -10,6 +10,10 @@
 #include <list>
 #include <map>
 
+#include "hw_dynlightdata.h"
+
+#include "hwrenderer/postprocessing/hw_useruniforms.h"
+
 class ShaderIncludeResult;
 class VulkanRenderDevice;
 class VulkanDevice;
@@ -31,11 +35,11 @@ struct SurfaceUniformsUBO
 	SurfaceUniforms data[MAX_SURFACE_UNIFORMS];
 };
 
-#define MAX_LIGHT_DATA ((int)(65536 / sizeof(FVector4)))
-
-struct LightBufferUBO
+struct LightBufferSSO
 {
-	FVector4 lights[MAX_LIGHT_DATA];
+	//TODO deduplicate individual lights
+	int lightIndex[MAX_LIGHT_DATA * 4];
+	FDynLightInfo lights[MAX_LIGHT_DATA];
 };
 
 #define MAX_FOGBALL_DATA ((int)(65536 / sizeof(Fogball)))
@@ -78,7 +82,9 @@ public:
 		struct
 		{
 			uint64_t AlphaTest : 1;     // !NO_ALPHATEST
-			uint64_t Simple2D : 1;      // uFogEnabled == -3
+			uint64_t Simple : 1;		// SIMPLE
+			uint64_t Simple2D : 1;      // SIMPLE2D, uFogEnabled == -3
+			uint64_t Simple3D : 1;		// SIMPLE3D
 			uint64_t TextureMode : 3;   // uTextureMode & 0xffff
 			uint64_t ClampY : 1;        // uTextureMode & TEXF_ClampY
 			uint64_t Brightmap : 1;     // uTextureMode & TEXF_Brightmap
@@ -100,7 +106,12 @@ public:
 			uint64_t AlphaTestOnly : 1; // ALPHATEST_ONLY
 			uint64_t LightBlendMode : 2; // LIGHT_BLEND_CLAMPED , LIGHT_BLEND_COLORED_CLAMP , LIGHT_BLEND_UNCLAMPED
 			uint64_t LightAttenuationMode : 1; // LIGHT_ATTENUATION_LINEAR , LIGHT_ATTENUATION_INVERSE_SQUARE
-			uint64_t Unused : 37;
+			uint64_t UseRaytracePrecise : 1; // USE_RAYTRACE_PRECISE
+			uint64_t ShadowmapFilter : 4; // SHADOWMAP_FILTER
+			uint64_t ShadeVertex : 1; // SHADE_VERTEX
+			uint64_t LightNoNormals : 1; // LIGHT_NONORMALS
+			uint64_t UseSpriteCenter : 1; // USE_SPRITE_CENTER
+			uint64_t Unused : 27;
 		};
 		uint64_t AsQWORD = 0;
 	};
@@ -120,6 +131,8 @@ class VkShaderProgram
 public:
 	std::unique_ptr<VulkanShader> vert;
 	std::unique_ptr<VulkanShader> frag;
+
+	UniformStructHolder Uniforms;
 };
 
 class VkShaderManager
@@ -144,14 +157,17 @@ public:
 	VulkanShader* GetLightTilesShader() { return LightTiles.get(); }
 
 private:
-	std::unique_ptr<VulkanShader> LoadVertShader(FString shadername, const char *vert_lump, const char *defines, bool levelmesh);
-	std::unique_ptr<VulkanShader> LoadFragShader(FString shadername, const char *frag_lump, const char *material_lump, const char* mateffect_lump, const char *light_lump_shared, const char *lightmodel_lump, const char *defines, const VkShaderKey& key);
+	std::unique_ptr<VulkanShader> LoadVertShader(FString shadername, const char *vert_lump, const char *vert_lump_custom, const char *defines, const VkShaderKey& key, const UserShaderDesc *shader);
+	std::unique_ptr<VulkanShader> LoadFragShader(FString shadername, const char *frag_lump, const char *material_lump, const char* mateffect_lump, const char *light_lump_shared, const char *lightmodel_lump, const char *defines, const VkShaderKey& key, const UserShaderDesc *shader);
 
 	ShaderIncludeResult OnInclude(FString headerName, FString includerName, size_t depth, bool system);
 
 	FString GetVersionBlock();
 	FString LoadPublicShaderLump(const char *lumpname);
 	FString LoadPrivateShaderLump(const char *lumpname);
+	
+	void BuildLayoutBlock(FString &definesBlock, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader);
+	void BuildDefinesBlock(FString &definesBlock, const char *defines, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader);
 
 	VulkanRenderDevice* fb = nullptr;
 

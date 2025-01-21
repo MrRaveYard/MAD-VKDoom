@@ -2964,7 +2964,7 @@ void MapLoader::InitLevelMesh(MapData* map)
 		}
 	}
 
-	if (map->Size(ML_LIGHTMAP))
+	if (map->Size(ML_LIGHTMAP) && !RunningAsTool)
 	{
 		// Arbitrary ZDRay limit. This will break lightmap lump loading if not enforced.
 		Level->LightmapSampleDistance = std::clamp((int)Level->LightmapSampleDistance, LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MIN, LIGHTMAP_GLOBAL_SAMPLE_DISTANCE_MAX);
@@ -3025,7 +3025,7 @@ void MapLoader::InitLevelMesh(MapData* map)
 
 bool MapLoader::LoadLightmap(MapData* map)
 {
-	if (!Level->lightmaps || !map->Size(ML_LIGHTMAP) || ignorelightmaplump)
+	if (RunningAsTool || !Level->lightmaps || !map->Size(ML_LIGHTMAP) || ignorelightmaplump)
 		return false;
 
 	FileReader fr;
@@ -3033,12 +3033,12 @@ bool MapLoader::LoadLightmap(MapData* map)
 		return false;
 
 	int version = fr.ReadInt32();
-	if (version < 3)
+	if (version < LIGHTMAPVER)
 	{
-		Printf(PRINT_HIGH, "LoadLightmap: This is an old unsupported version of the lightmap lump. Please rebuild the map with a newer version of zdray.\n");
+		Printf(PRINT_HIGH, "LoadLightmap: This is an old unsupported version of the lightmap lump. Please rebuild the map with the console commands 'deletelightmap', and then 'savelightmap'.\n");
 		return false;
 	}
-	else if (version != 3)
+	else if (version != LIGHTMAPVER)
 	{
 		Printf(PRINT_HIGH, "LoadLightmap: unsupported lightmap lump version\n");
 		return false;
@@ -3202,8 +3202,11 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 	// Reset defaults for lightmapping
 	Level->SunColor = gameinfo.defaultSunColor;
 	Level->SunDirection = gameinfo.defaultSunDirection;
+	Level->SunIntensity = gameinfo.defaultSunIntensity;
 	Level->LightmapSampleDistance = gameinfo.defaultLightmapSampleDistance;
 	Level->lightmaps = gameinfo.forceEnableLightmaps;
+	Level->LightBounce = true;
+	Level->AmbientOcclusion = true;
 
 	// note: most of this ordering is important 
 	ForceNodeBuild = gennodes;

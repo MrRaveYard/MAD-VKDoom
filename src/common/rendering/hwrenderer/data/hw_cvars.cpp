@@ -130,13 +130,18 @@ CVAR(Bool, gl_precache, true, CVAR_ARCHIVE)
 
 CUSTOM_CVAR(Int, gl_light_shadows, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
-	if (self < 0 || self > 3)
+	if (self < 0 || self > 4)
 		self = 1;
 }
 
 CUSTOM_CVAR(Int, gl_light_shadow_filter, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
 	if (self < 0 || self > 8) self = 1;
+}
+
+CUSTOM_CVAR(Int, gl_light_shadow_max_quality, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	if (self < 0 || self > 4) self = 1; // default medium, 0 = low, 1 = medium, 2 = high, 3 = ultra
 }
 
 CUSTOM_CVAR(Int, gl_shadowmap_quality, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
@@ -153,3 +158,26 @@ CUSTOM_CVAR(Int, gl_shadowmap_quality, 512, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 		break;
 	}
 }
+
+CVAR(Bool, gl_strict_gldefs, true, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+
+CUSTOM_CVAR(Int, gl_wireframe, 0, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+{
+	if (self < 0 || self > 2) self = 0; // default off, 0 = off, 1 = wireframe only, 2 = level + wireframe
+}
+
+CVAR(Color, gl_wireframecolor, -1, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+
+CUSTOM_CVAR(Int, gl_spritelight, -1, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+{
+	if (self < -1 || self > 2) self = -1; // default auto, auto (rt 1, non-rt 0) = -1 gpu vertex, 0 = cpu, 1 = gpu vertex, 2 = gpu pixel
+}
+
+#include "common/rendering/vulkan/vk_renderdevice.h"
+
+int get_gl_spritelight()
+{
+	return gl_spritelight < 0 ? (screen->IsRayQueryEnabled() ? 1 : 0) : gl_spritelight;
+}
+
+CVAR(Bool, gl_fakemodellight, true, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)

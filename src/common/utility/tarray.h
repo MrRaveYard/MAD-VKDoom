@@ -382,36 +382,14 @@ public:
 	// exact = false returns the closest match, to be used for, ex., insertions, exact = true returns Size() when no match, like Find does
 	unsigned int SortedFind(const T& item, bool exact = true) const
 	{
-		if(Count == 0) return 0;
-		if(Count == 1) return (item < Array[0]) ? 0 : 1;
-
-		unsigned int lo = 0;
-		unsigned int hi = Count - 1;
-
-		while(lo <= hi)
-		{
-			int mid = lo + ((hi - lo) / 2);
-
-			if(Array[mid] < item)
-			{
-				lo = mid + 1;
-			}
-			else if(item < Array[mid])
-			{
-				hi = mid - 1;
-			}
-			else
-			{
-				return mid;
-			}
-		}
+		unsigned int index = (std::lower_bound(begin(), end(), item) - begin());
 		if(exact)
 		{
-			return Count;
+			return (index < Count && Array[index] == item) ? index : Count;
 		}
 		else
 		{
-			return (lo == Count || (item < Array[lo])) ? lo : lo + 1;
+			return index;
 		}
 	}
 
@@ -421,37 +399,14 @@ public:
 	template<typename Func>
 	unsigned int SortedFind(const T& item, Func &&lt, bool exact = true) const
 	{
-		if(Count == 0) return 0;
-		if(Count == 1) return lt(item, Array[0]) ? 0 : 1;
-
-		unsigned int lo = 0;
-		unsigned int hi = Count - 1;
-
-		while(lo <= hi)
-		{
-			int mid = lo + ((hi - lo) / 2);
-
-			if(std::invoke(lt, Array[mid], item))
-			{
-				lo = mid + 1;
-			}
-			else if(std::invoke(lt, item, Array[mid]))
-			{
-				if(mid == 0) break; // prevent negative overflow due to unsigned numbers
-				hi = mid - 1;
-			}
-			else
-			{
-				return mid;
-			}
-		}
+		unsigned int index = (std::lower_bound(begin(), end(), item, lt) - begin());
 		if(exact)
 		{
-			return Count;
+			return (index < Count && !std::invoke(lt, Array[index], item) && !std::invoke(lt, item, Array[index])) ? index : Count;
 		}
 		else
 		{
-			return (lo == Count || std::invoke(lt, item, Array[lo])) ? lo : lo + 1;
+			return index;
 		}
 	}
 
@@ -1301,12 +1256,12 @@ public:
 	//
 	//=======================================================================
 
-	VT &operator[] (const KT key)
+	VT &operator[] (const KT &key)
 	{
 		return GetNode(key)->Pair.Value;
 	}
 
-	const VT &operator[] (const KT key) const
+	const VT &operator[] (const KT &key) const
 	{
 		return GetNode(key)->Pair.Value;
 	}
@@ -1320,13 +1275,13 @@ public:
 	//
 	//=======================================================================
 
-	VT *CheckKey (const KT key)
+	VT *CheckKey (const KT &key)
 	{
 		Node *n = FindKey(key);
 		return n != NULL ? &n->Pair.Value : NULL;
 	}
 
-	const VT *CheckKey (const KT key) const
+	const VT *CheckKey (const KT &key) const
 	{
 		const Node *n = FindKey(key);
 		return n != NULL ? &n->Pair.Value : NULL;
@@ -1345,7 +1300,7 @@ public:
 	//
 	//=======================================================================
 
-	VT &Insert(const KT key, const VT &value)
+	VT &Insert(const KT &key, const VT &value)
 	{
 		Node *n = FindKey(key);
 		if (n != NULL)
@@ -1360,7 +1315,7 @@ public:
 		return n->Pair.Value;
 	}
 
-	VT &Insert(const KT key, VT &&value)
+	VT &Insert(const KT &key, VT &&value)
 	{
 		Node *n = FindKey(key);
 		if (n != NULL)
@@ -1375,7 +1330,7 @@ public:
 		return n->Pair.Value;
 	}
 
-	VT &InsertNew(const KT key)
+	VT &InsertNew(const KT &key)
 	{
 		Node *n = FindKey(key);
 		if (n != NULL)
@@ -1398,7 +1353,7 @@ public:
 	//
 	//=======================================================================
 
-	void Remove(const KT key)
+	void Remove(const KT &key)
 	{
 		DelKey(key);
 	}
@@ -1441,13 +1396,13 @@ protected:
 	hash_t Size;		/* must be a power of 2 */
 	hash_t NumUsed;
 
-	const Node *MainPosition(const KT k) const
+	const Node *MainPosition(const KT &k) const
 	{
 		HashTraits Traits;
 		return &Nodes[Traits.Hash(k) & (Size - 1)];
 	}
 
-	Node *MainPosition(const KT k)
+	Node *MainPosition(const KT &k)
 	{
 		HashTraits Traits;
 		return &Nodes[Traits.Hash(k) & (Size - 1)];
@@ -1528,7 +1483,7 @@ protected:
 	**
 	** The Value field is left unconstructed.
 	*/
-	Node *NewKey(const KT key)
+	Node *NewKey(const KT &key)
 	{
 		Node *mp = MainPosition(key);
 		if (!mp->IsNil())
@@ -1567,7 +1522,7 @@ protected:
 		return mp;
 	}
 
-	void DelKey(const KT key)
+	void DelKey(const KT &key)
 	{
 		Node *mp = MainPosition(key), **mpp;
 		HashTraits Traits;
@@ -1606,7 +1561,7 @@ protected:
 		}
 	}
 
-	Node *FindKey(const KT key)
+	Node *FindKey(const KT &key)
 	{
 		HashTraits Traits;
 		Node *n = MainPosition(key);
@@ -1617,7 +1572,7 @@ protected:
 		return n == NULL || n->IsNil() ? NULL : n;
 	}
 
-	const Node *FindKey(const KT key) const
+	const Node *FindKey(const KT &key) const
 	{
 		HashTraits Traits;
 		const Node *n = MainPosition(key);
@@ -1628,7 +1583,7 @@ protected:
 		return n == NULL || n->IsNil() ? NULL : n;
 	}
 
-	Node *GetNode(const KT key)
+	Node *GetNode(const KT &key)
 	{
 		Node *n = FindKey(key);
 		if (n != NULL)
@@ -1639,6 +1594,17 @@ protected:
 		ValueTraits traits;
 		traits.Init(n->Pair.Value);
 		return n;
+	}
+
+	const Node *GetNode(const KT &key) const
+	{
+
+		Node *n = ((TMap<KT, VT, HashTraits, ValueTraits>*)(this))->FindKey(key);
+		if (n != NULL)
+		{
+			return n;
+		}
+		return nullptr;
 	}
 
 	/* Perform a bit-wise copy of the node. Used when relocating a node in the table. */

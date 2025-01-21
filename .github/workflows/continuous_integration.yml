@@ -12,12 +12,10 @@ jobs:
         config:
         - name: Visual Studio 2022
           os: windows-2022
-          extra_options: -DCMAKE_TOOLCHAIN_FILE=build/vcpkg/scripts/buildsystems/vcpkg.cmake
           build_type: RelWithDebInfo
 
         - name: Visual Studio 2022
           os: windows-2022
-          extra_options: -DCMAKE_TOOLCHAIN_FILE=build/vcpkg/scripts/buildsystems/vcpkg.cmake
           build_type: Debug
 
         - name: macOS
@@ -76,13 +74,6 @@ jobs:
           tar -xf "${ZMUSIC_PACKAGE}"
         fi
     
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      if: runner.os == 'Windows'
-      with:
-        vcpkgDirectory: '${{ github.workspace }}/build/vcpkg'
-        vcpkgGitCommitId: '2c401863dd54a640aeb26ed736c55489c079323b'
-
     - name: Configure
       shell: bash
       run: |
@@ -101,14 +92,17 @@ jobs:
         cd build
         mkdir package
         if [[ "${{ runner.os }}" == 'Windows' ]]; then
-          cp -r ${{ matrix.config.build_type }}/vkdoom.exe ${{ matrix.config.build_type }}/*.pk3 ${{ matrix.config.build_type }}/fm_banks ${{ matrix.config.build_type }}/soundfonts package
+          cp -r ${{ matrix.config.build_type }}/vkdoom.exe ${{ matrix.config.build_type }}/vktool.exe ${{ matrix.config.build_type }}/*.pk3 ${{ matrix.config.build_type }}/fm_banks ${{ matrix.config.build_type }}/soundfonts package
           cp ../bin/licenses.zip ../bin/windows/libsndfile/64bit/libsndfile-1.dll ../bin/windows/openal/64bit/openal32.dll ../bin/windows/zmusic/64bit/zmusic.dll package
           cp ${{ matrix.config.build_type }}/vkdoom-stripped.pdb package/vkdoom.pdb
+          cp ${{ matrix.config.build_type }}/vkdoom-stripped.pdb package/vktool.pdb
         elif [[ "${{ runner.os }}" == 'macOS' ]]; then
           cp -r vkdoom.app package
+          cp -r vktool package
         elif [[ "${{ runner.os }}" == 'Linux' ]]; then
-          cp vkdoom *.pk3 package
+          cp vkdoom vktool *.pk3 package
           strip package/vkdoom
+          strip package/vktool
         fi
 
     - name: Upload Package

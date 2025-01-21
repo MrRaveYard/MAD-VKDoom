@@ -155,9 +155,9 @@ struct HWDrawInfo
 	TArray<HWPortal *> Portals;
 	TArray<HWDecal *> Decals[2];	// the second slot is for mirrors which get rendered in a separate pass.
 	TArray<HUDSprite> hudsprites;	// These may just be stored by value.
-	TArray<AActor*> Coronas;
 	TArray<Fogball> Fogballs;
 	TArray<LightmapTile*> VisibleTiles;
+	unsigned visibleDyn;
 	uint64_t LastFrameTime = 0;
 
 	TArray<MissingTextureInfo> MissingUpperTextures;
@@ -243,8 +243,15 @@ public:
 		if (lm_always_update || tile->AlwaysUpdate == 2 || (tile->AlwaysUpdate == 1 && lm_dynamic))
 		{
 			tile->NeedsUpdate = true;
+			visibleDyn++;
 		}
-		else if (VisibleTiles.Size() >= unsigned(lm_max_updates))
+		else if(tile->AlwaysUpdate == 3 && lm_dynamic)
+		{
+			tile->AlwaysUpdate = 0;
+			tile->NeedsUpdate = true;
+			visibleDyn++;
+		}
+		else if ((VisibleTiles.Size() - visibleDyn) >= unsigned(lm_max_updates))
 		{
 			return;
 		}
@@ -306,8 +313,10 @@ public:
 	void AddOtherFloorPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 	void AddOtherCeilingPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 
-	void GetDynSpriteLight(AActor *self, float x, float y, float z, FLightNode *node, int portalgroup, float *out, bool fullbright);
-	void GetDynSpriteLight(AActor *thing, particle_t *particle, float *out);
+	void GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright);
+	void GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trace_cache_t * traceCache, float *out);
+
+	void GetDynSpriteLightList(AActor *self, FDynLightData &modellightdata, bool isModel);
 
 	void PreparePlayerSprites(sector_t * viewsector, area_t in_area, FRenderState& state);
 	void PrepareTargeterSprites(double ticfrac, FRenderState& state);
@@ -320,7 +329,7 @@ public:
 	void DrawDecals(FRenderState &state, TArray<HWDecal *> &decals);
 	void DrawPlayerSprites(bool hudModelStep, FRenderState &state);
 	void DrawCoronas(FRenderState& state);
-	void DrawCorona(FRenderState& state, AActor* corona, float coronaFade, double dist);
+	void DrawCorona(FRenderState& state, AActor* corona, float coronaFade, const DVector3& pos, double dist);
 
 	void SetDitherTransFlags(AActor* actor);
 

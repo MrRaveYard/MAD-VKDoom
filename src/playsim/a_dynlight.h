@@ -80,6 +80,10 @@ public:
 	void SetDontLightMap(bool on) { if (on) m_lightFlags |= LF_DONTLIGHTMAP; else m_lightFlags &= ~LF_DONTLIGHTMAP; }
 	void SetTrace(bool on) { if (on) m_lightFlags |= LF_TRACE; else m_lightFlags &= ~LF_TRACE; }
 	void SetNoShadowmap(bool on) { if (on) m_lightFlags |= LF_NOSHADOWMAP; else m_lightFlags &= ~LF_NOSHADOWMAP; }
+	void SetShadowMinQuality(int quality)
+	{
+		shadowMinQuality = quality;
+	}
 	void SetSpot(bool spot) { if (spot) m_lightFlags |= LF_SPOT; else m_lightFlags &= ~LF_SPOT; }
 	void SetSpotInnerAngle(double angle) { m_spotInnerAngle = DAngle::fromDeg(angle); }
 	void SetSpotOuterAngle(double angle) { m_spotOuterAngle = DAngle::fromDeg(angle); }
@@ -133,6 +137,7 @@ protected:
 	DAngle m_pitch = nullAngle;
 	double SoftShadowRadius = 5.0;
 	double Linearity = 0.0;
+	int shadowMinQuality = 1; // default medium, 0 = low, 1 = medium, 2 = high, 3 = ultra
 	
 	friend FSerializer &Serialize(FSerializer &arc, const char *key, FLightDefaults &value, FLightDefaults *def);
 };
@@ -195,7 +200,7 @@ struct FLightNode
 	union
 	{
 		side_t * targLine;
-		subsector_t * targSubsector;
+		FSection* targSection;
 		void * targ;
 	};
 };
@@ -239,7 +244,7 @@ struct FDynamicLight
 	bool IsSpot() const { return !!((*pLightFlags) & LF_SPOT); }
 	bool IsAttenuated() const { return !!((*pLightFlags) & LF_ATTENUATE); }
 	bool Trace() const { return !!((*pLightFlags) & (LF_TRACE)); }
-	bool TraceActors() const { return Trace() || gl_light_shadows == 2; }
+	bool TraceActors() const { return Trace() || gl_light_shadows >= 2; }
 	bool DontShadowmap() const { return !!((*pLightFlags) & LF_NOSHADOWMAP); }
 	bool DontLightSelf() const { return !!((*pLightFlags) & (LF_DONTLIGHTSELF|LF_DONTLIGHTACTORS)); }	// dontlightactors implies dontlightself.
 	bool DontLightActors() const { return !!((*pLightFlags) & LF_DONTLIGHTACTORS); }
@@ -291,6 +296,7 @@ public:
 	int m_tickCount;
 	int m_lastUpdate;
 	int mShadowmapIndex;
+	int shadowMinQuality;
 	bool m_active;
 	bool wasactive;
 	bool visibletoplayer;
@@ -300,9 +306,14 @@ public:
 	bool swapped;
 	bool explicitpitch;
 
+	bool updated;
+
 	int oldred, oldgreen, oldblue;
 
 	float lightStrength;
+
+	TArray<AActor*> ActorList;
+	TArray<bool> ActorResult;
 
 	// Locations in the level mesh light list. Ends with index = 0 or all entries used
 	enum { max_levelmesh_entries = 4 };

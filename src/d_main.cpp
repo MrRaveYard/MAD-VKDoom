@@ -121,6 +121,7 @@
 #include "startscreen.h"
 #include "shiftstate.h"
 #include "common/widgets/errorwindow.h"
+#include "commandlets/commandlet.h"
 
 #ifdef __unix__
 #include "i_system.h"  // for SHARE_DIR
@@ -140,6 +141,7 @@ void D_DoAnonStats();
 void I_DetectOS();
 void UpdateGenericUI(bool cvar);
 void Local_Job_Init();
+int ToolMain();
 
 // MACROS ------------------------------------------------------------------
 
@@ -313,7 +315,7 @@ CUSTOM_CVAR(Int, I_FriendlyWindowTitle, 1, CVAR_GLOBALCONFIG|CVAR_ARCHIVE|CVAR_N
 }
 CVAR(Bool, cl_nointros, false, CVAR_ARCHIVE)
 
-
+bool RunningAsTool = false;
 bool hud_toggled = false;
 bool wantToRestart;
 bool DrawFSHUD;				// [RH] Draw fullscreen HUD?
@@ -1300,6 +1302,33 @@ void D_ErrorCleanup ()
 	ClearGlobalVMStack();
 }
 
+void D_BeginDoomLoop()
+{
+	// Clamp the timer to TICRATE until the playloop has been entered.
+	r_NoInterpolate = true;
+	Page.SetInvalid();
+	Subtitle = nullptr;
+	Advisory.SetInvalid();
+}
+
+void D_SingleTick()
+{
+	I_StartTic();
+	D_ProcessEvents();
+	G_BuildTiccmd(&netcmds[consoleplayer][maketic % BACKUPTICS]);
+	if (advancedemo)
+		D_DoAdvanceDemo();
+	C_Ticker();
+	M_Ticker();
+	G_Ticker();
+	// [RH] Use the consoleplayer's camera to update sounds
+	S_UpdateSounds(players[consoleplayer].camera);	// move positional sounds
+	gametic++;
+	maketic++;
+	GC::CheckGC();
+	Net_NewMakeTic();
+}
+
 //==========================================================================
 //
 // D_DoomLoop
@@ -1311,15 +1340,10 @@ void D_ErrorCleanup ()
 
 void D_DoomLoop ()
 {
-	int lasttic = 0;
-
-	// Clamp the timer to TICRATE until the playloop has been entered.
-	r_NoInterpolate = true;
-	Page.SetInvalid();
-	Subtitle = nullptr;
-	Advisory.SetInvalid();
-
+	D_BeginDoomLoop();
 	vid_cursor->Callback();
+
+	int lasttic = 0;
 
 	for (;;)
 	{
@@ -1338,20 +1362,7 @@ void D_DoomLoop ()
 			// process one or more tics
 			if (singletics)
 			{
-				I_StartTic ();
-				D_ProcessEvents ();
-				G_BuildTiccmd (&netcmds[consoleplayer][maketic%BACKUPTICS]);
-				if (advancedemo)
-					D_DoAdvanceDemo ();
-				C_Ticker ();
-				M_Ticker ();
-				G_Ticker ();
-				// [RH] Use the consoleplayer's camera to update sounds
-				S_UpdateSounds (players[consoleplayer].camera);	// move positional sounds
-				gametic++;
-				maketic++;
-				GC::CheckGC ();
-				Net_NewMakeTic ();
+				D_SingleTick();
 			}
 			else
 			{
@@ -2121,7 +2132,7 @@ static void D_DoomInit()
 
 	gamestate = GS_STARTUP;
 
-	if (!batchrun) Printf ("M_LoadDefaults: Load system defaults.\n");
+	if (!batchrun && !RunningAsTool) Printf ("M_LoadDefaults: Load system defaults.\n");
 	M_LoadDefaults ();			// load before initing other systems
 }
 
@@ -2212,7 +2223,7 @@ static void CheckCmdLine()
 	int p;
 	const char *v;
 
-	if (!batchrun) Printf ("Checking cmd-line parameters...\n");
+	if (!batchrun && !RunningAsTool) Printf ("Checking cmd-line parameters...\n");
 	if (Args->CheckParm ("-nomonsters"))	flags |= DF_NO_MONSTERS;
 	if (Args->CheckParm ("-respawn"))		flags |= DF_MONSTERS_RESPAWN;
 	if (Args->CheckParm ("-fast"))			flags |= DF_FAST_MONSTERS;
@@ -3233,7 +3244,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	{
 		rngseed = staticrngseed = atoi(v);
 		use_staticrng = true;
-		if (!batchrun) Printf("D_DoomInit: Static RNGseed %d set.\n", rngseed);
+		if (!batchrun && !RunningAsTool) Printf("D_DoomInit: Static RNGseed %d set.\n", rngseed);
 	}
 	else
 	{
@@ -3270,7 +3281,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 		exec->AddPullins(allwads, GameConfig);
 	}
 
-	if (!batchrun) Printf ("W_Init: Init WADfiles.\n");
+	if (!batchrun && !RunningAsTool) Printf ("W_Init: Init WADfiles.\n");
 
 	LumpFilterInfo lfi;
 
@@ -3330,12 +3341,12 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	D_GrabCVarDefaults(); //parse DEFCVARS
 	InitPalette();
 
-	if (!batchrun) Printf("S_Init: Setting up sound.\n");
+	if (!batchrun && !RunningAsTool) Printf("S_Init: Setting up sound.\n");
 	S_Init();
 
 	int max_progress = TexMan.GuesstimateNumTextures();
 	int per_shader_progress = 0;//screen->GetShaderCount()? (max_progress / 10 / screen->GetShaderCount()) : 0;
-	bool nostartscreen = batchrun || restart || Args->CheckParm("-join") || Args->CheckParm("-host") || Args->CheckParm("-norun");
+	bool nostartscreen = RunningAsTool || batchrun || restart || Args->CheckParm("-join") || Args->CheckParm("-host") || Args->CheckParm("-norun");
 
 	if (GameStartupInfo.Type == FStartupInfo::DefaultStartup)
 	{
@@ -3374,7 +3385,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 
 	if (!restart)
 	{
-		if (!batchrun) Printf ("I_Init: Setting up machine state.\n");
+		if (!batchrun && !RunningAsTool) Printf ("I_Init: Setting up machine state.\n");
 		CheckCPUID(&CPU);
 		CalculateCPUSpeed();
 		auto ci = DumpCPUInfo(&CPU);
@@ -3383,7 +3394,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 
 	TexMan.Init();
 	
-	if (!batchrun) Printf ("V_Init: allocate screen.\n");
+	if (!batchrun && !RunningAsTool) Printf ("V_Init: allocate screen.\n");
 	if (!restart)
 	{
 		screen->CompileNextShader();
@@ -3405,7 +3416,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 		compatmode = (int)strtoll(compatmodeval, nullptr, 10);
 	}
 
-	if (!batchrun) Printf ("ST_Init: Init startup screen.\n");
+	if (!batchrun && !RunningAsTool) Printf ("ST_Init: Init startup screen.\n");
 	if (!restart)
 	{
 		StartWindow = FStartupScreen::CreateInstance (TexMan.GuesstimateNumTextures() + 5);
@@ -3421,11 +3432,11 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	S_ParseReverbDef ();
 
 	// [RH] Parse any SNDINFO lumps
-	if (!batchrun) Printf ("S_InitData: Load sound definitions.\n");
+	if (!batchrun && !RunningAsTool) Printf ("S_InitData: Load sound definitions.\n");
 	S_InitData ();
 
 	// [RH] Parse through all loaded mapinfo lumps
-	if (!batchrun) Printf ("G_ParseMapInfo: Load map definitions.\n");
+	if (!batchrun && !RunningAsTool) Printf ("G_ParseMapInfo: Load map definitions.\n");
 	G_ParseMapInfo (iwad_info->MapInfo);
 	MessageBoxClass = gameinfo.MessageBoxClass;
 	endoomName = gameinfo.Endoom;
@@ -3435,7 +3446,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	// MUSINFO must be parsed after MAPINFO
 	S_ParseMusInfo();
 
-	if (!batchrun) Printf ("Texman.Init: Init texture manager.\n");
+	if (!batchrun && !RunningAsTool) Printf ("Texman.Init: Init texture manager.\n");
 	UpdateUpscaleMask();
 	SpriteFrames.Clear();
 	TexMan.AddTextures([]() 
@@ -3457,7 +3468,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	UpdateGenericUI(false);
 
 	// [CW] Parse any TEAMINFO lumps.
-	if (!batchrun) Printf ("ParseTeamInfo: Load team definitions.\n");
+	if (!batchrun && !RunningAsTool) Printf ("ParseTeamInfo: Load team definitions.\n");
 	FTeam::ParseTeamInfo ();
 
 	R_ParseTrnslate();
@@ -3483,13 +3494,13 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 
 	ParseGLDefs();
 
-	if (!batchrun) Printf ("R_Init: Init %s refresh subsystem.\n", gameinfo.ConfigName.GetChars());
+	if (!batchrun && !RunningAsTool) Printf ("R_Init: Init %s refresh subsystem.\n", gameinfo.ConfigName.GetChars());
 	if (StartScreen) StartScreen->LoadingStatus ("Loading graphics", 0x3f);
 	if (StartScreen) StartScreen->Progress(1);
 	StartWindow->Progress(); 
 	R_Init ();
 
-	if (!batchrun) Printf ("DecalLibrary: Load decals.\n");
+	if (!batchrun && !RunningAsTool) Printf ("DecalLibrary: Load decals.\n");
 	DecalLibrary.ReadAllDecals ();
 
 	auto numbasesounds = soundEngine->GetNumSounds();
@@ -3511,7 +3522,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 		{
 			if (stricmp (key, "Path") == 0 && FileExists (value))
 			{
-				if (!batchrun) Printf ("Applying patch %s\n", value);
+				if (!batchrun && !RunningAsTool) Printf ("Applying patch %s\n", value);
 				D_LoadDehFile(value, 0);
 			}
 		}
@@ -3526,7 +3537,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	auto numdehsounds = soundEngine->GetNumSounds();
 	if (numbasesounds < numdehsounds) S_LockLocalSndinfo(); // DSDHacked sounds are not compatible with map-local SNDINFOs.
 
-	if (!batchrun) Printf("M_Init: Init menus.\n");
+	if (!batchrun && !RunningAsTool) Printf("M_Init: Init menus.\n");
 	SetDefaultMenuColors();
 	M_Init();
 	M_CreateGameMenus();
@@ -3551,7 +3562,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	primaryLevel->BotInfo.spawn_tries = 0;
 	primaryLevel->BotInfo.wanted_botnum = primaryLevel->BotInfo.getspawned.Size();
 
-	if (!batchrun) Printf ("P_Init: Init Playloop state.\n");
+	if (!batchrun && !RunningAsTool) Printf ("P_Init: Init Playloop state.\n");
 	if (StartScreen) StartScreen->LoadingStatus ("Init game engine", 0x3f);
 	AM_StaticInit();
 	P_Init ();
@@ -3561,7 +3572,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 	//SBarInfo support. Note that the first SBARINFO lump contains the mugshot definition so it even needs to be read when a regular status bar is being used.
 	SBarInfo::Load();
 
-	if (!batchrun)
+	if (!batchrun && !RunningAsTool)
 	{
 		// [RH] User-configurable startup strings. Because BOOM does.
 		static const char *startupString[5] = {
@@ -3580,7 +3591,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 
 	if (!restart)
 	{
-		if (!batchrun) Printf ("D_CheckNetGame: Checking network game status.\n");
+		if (!batchrun && !RunningAsTool) Printf ("D_CheckNetGame: Checking network game status.\n");
 		if (StartScreen) StartScreen->LoadingStatus ("Checking network game status.", 0x3f);
 		if (!D_CheckNetGame ())
 		{
@@ -3622,6 +3633,9 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 		{
 			return 1337; // special exit
 		}
+
+		if (RunningAsTool)
+			return 0;
 
 		if (StartScreen)
 		{
@@ -3728,11 +3742,16 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 //
 //==========================================================================
 
-static int D_DoomMain_Internal (void)
+namespace
 {
-	const char *wad;
-	FIWadManager *iwad_man;
+	const char* wad;
+	const char* batchout;
+}
 
+int D_DoomMain_Game();
+
+int GameMain_Internal()
+{
 	NetworkEntityManager::NetIDStart = MAXPLAYERS + 1;
 	GC::AddMarkerFunc(GC_MarkGameRoots);
 	VM_CastSpriteIDToString = Doom_CastSpriteIDToString;
@@ -3782,7 +3801,7 @@ static int D_DoomMain_Internal (void)
 
 	
 	std::set_new_handler(NewFailure);
-	const char *batchout = Args->CheckValue("-errorlog");
+	batchout = Args->CheckValue("-errorlog");
 
 	D_DoomInit();
 	
@@ -3846,6 +3865,19 @@ static int D_DoomMain_Internal (void)
 	}
 
 	C_InitConsole(80*8, 25*8, false);
+
+	if (RunningAsTool)
+	{
+		return ToolMain();
+	}
+	else
+	{
+		return D_DoomMain_Game();
+	}
+}
+
+int D_DoomMain_Game()
+{
 	I_DetectOS();
 
 	// +logfile gets checked too late to catch the full startup log in the logfile so do some extra check for it here.
@@ -3876,7 +3908,7 @@ static int D_DoomMain_Internal (void)
 
 	FString optionalwad = BaseFileSearch(OPTIONALWAD, NULL, true, GameConfig);
 
-	iwad_man = new FIWadManager(basewad.GetChars(), optionalwad.GetChars());
+	FIWadManager* iwad_man = new FIWadManager(basewad.GetChars(), optionalwad.GetChars());
 
 	// Now that we have the IWADINFO, initialize the autoload ini sections.
 	GameConfig->DoAutoloadSetup(iwad_man);
@@ -3932,6 +3964,12 @@ static int D_DoomMain_Internal (void)
 		iwad_man = NULL;
 		if (ret != 0) return ret;
 
+		if (RunningAsTool)
+		{
+			RootCommandlet::RunEngineCommand();
+			return 0;
+		}
+
 		D_DoAnonStats();
 		I_UpdateWindowTitle();
 		D_DoomLoop ();		// this only returns if a 'restart' CCMD is given.
@@ -3965,7 +4003,7 @@ int GameMain()
 
 	try
 	{
-		ret = D_DoomMain_Internal();
+		ret = GameMain_Internal();
 	}
 	catch (const CExitEvent &exit)	// This is a regular exit initiated from deeply nested code.
 	{
@@ -4058,6 +4096,8 @@ void D_Cleanup()
 	{
 		*(afunc->VMPointer) = NULL;
 	});
+
+	CleanupGlobalShaders();
 	
 	GC::DelSoftRootHead();
 	

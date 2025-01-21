@@ -69,6 +69,8 @@ CVAR(Bool, gl_coronas, true, CVAR_ARCHIVE);
 
 CVAR(Bool, gl_levelmesh, false, 0/*CVAR_ARCHIVE | CVAR_GLOBALCONFIG*/)
 
+extern TArray<AActor*> Coronas;
+
 sector_t * hw_FakeFlat(sector_t * sec, sector_t * dest, area_t in_area, bool back);
 
 
@@ -126,7 +128,6 @@ void HWDrawInfo::StartScene(FRenderViewpoint &parentvp, HWViewpointUniforms *uni
 			VPUniforms.mPalLightLevels = static_cast<int>(gl_bandedswlight) | (static_cast<int>(gl_fogmode) << 8) | ((int)lightmode << 16);
 		}
 		VPUniforms.mClipLine.X = -10000000.0f;
-		VPUniforms.mShadowFilter = static_cast<int>(gl_light_shadow_filter);
 	}
 	mClipper->SetViewpoint(Viewpoint);
 	vClipper->SetViewpoint(Viewpoint);
@@ -136,9 +137,9 @@ void HWDrawInfo::StartScene(FRenderViewpoint &parentvp, HWViewpointUniforms *uni
 
 	for (int i = 0; i < GLDL_TYPES; i++) drawlists[i].Reset();
 	hudsprites.Clear();
-	Coronas.Clear();
 	Fogballs.Clear();
 	VisibleTiles.Clear();
+	visibleDyn = 0;
 	vpIndex = 0;
 
 	// Fullbright information needs to be propagated from the main view.
@@ -831,7 +832,7 @@ void HWDrawInfo::RenderPortal(HWPortal *p, FRenderState &state, bool usestencil)
 
 }
 
-void HWDrawInfo::DrawCorona(FRenderState& state, AActor* corona, float coronaFade, double dist)
+void HWDrawInfo::DrawCorona(FRenderState& state, AActor* corona, float coronaFade, const DVector3& pos, double dist)
 {
 	spriteframe_t* sprframe = &SpriteFrames[sprites[corona->sprite].spriteframes + (size_t)corona->SpawnState->GetFrame()];
 	FTextureID patch = sprframe->Texture[0];
@@ -840,7 +841,7 @@ void HWDrawInfo::DrawCorona(FRenderState& state, AActor* corona, float coronaFad
 	if (!tex || !tex->isValid()) return;
 
 	// Project the corona sprite center
-	FVector4 worldPos((float)corona->X(), (float)corona->Z(), (float)corona->Y(), 1.0f);
+	FVector4 worldPos((float)pos.X, (float)pos.Z, (float)pos.Y, 1.0f);
 	FVector4 viewPos, clipPos;
 	VPUniforms.mViewMatrix.multMatrixPoint(&worldPos[0], &viewPos[0]);
 	VPUniforms.mProjectionMatrix.multMatrixPoint(&viewPos[0], &clipPos[0]);
@@ -1044,8 +1045,8 @@ void HWDrawInfo::DrawCoronas(FRenderState& state)
 	for (AActor* corona : Coronas)
 	{
 		auto& coronaFade = corona->specialf1;
-		auto cPos = corona->Vec3Offset(0., 0., corona->Height * 0.5);
-		DVector3 direction = Viewpoint.Pos - cPos;
+		DVector3 realPos = corona->PosRelative(Viewpoint.sector);
+		DVector3 direction = Viewpoint.Pos - realPos;
 		double dist = direction.Length();
 
 		// skip coronas that are too far
@@ -1056,7 +1057,7 @@ void HWDrawInfo::DrawCoronas(FRenderState& state)
 
 		direction.MakeUnit();
 		FTraceResults results;
-		if (!Trace(cPos, corona->Sector, direction, dist, MF_SOLID, ML_BLOCKEVERYTHING, corona, results, 0, CheckForViewpointActor, &Viewpoint))
+		if (!Trace(corona->Pos(), corona->Sector, direction, dist, MF_SOLID, ML_BLOCKEVERYTHING, corona, results, 0, CheckForViewpointActor, &Viewpoint))
 		{
 			coronaFade = std::min(coronaFade + timeElapsed * fadeSpeed, 1.0);
 		}
@@ -1066,7 +1067,7 @@ void HWDrawInfo::DrawCoronas(FRenderState& state)
 		}
 
 		if (coronaFade > 0.0f)
-			DrawCorona(state, corona, (float)coronaFade, dist);
+			DrawCorona(state, corona, (float)coronaFade, realPos, dist);
 	}
 
 	state.AlphaFunc(Alpha_Greater, 0.f);
@@ -1214,6 +1215,8 @@ void HWDrawInfo::DrawScene(int drawmode, FRenderState& state)
 	state.SetDepthMask(true);
 	if (!gl_no_skyclear && !gl_levelmesh) drawctx->portalState.RenderFirstSkyPortal(recursion, this, state);
 
+	state.SetWireframe(gl_wireframe, gl_wireframecolor.get()->asFV4());
+
 	RenderScene(state);
 
 	screen->UpdateLinearDepthTexture();
@@ -1236,6 +1239,9 @@ void HWDrawInfo::DrawScene(int drawmode, FRenderState& state)
 	{
 		state.SetFogballIndex(-1);
 	}
+
+	state.SetWireframe(0);
+
 }
 
 //-----------------------------------------------------------------------------

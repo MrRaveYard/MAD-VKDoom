@@ -64,6 +64,7 @@
 extern TArray<spritedef_t> sprites;
 extern TArray<spriteframe_t> SpriteFrames;
 extern uint32_t r_renderercaps;
+extern TArray<AActor*> Coronas;
 
 const float LARGE_VALUE = 1e19f;
 const float MY_SQRT2    = 1.41421356237309504880; // sqrt(2)
@@ -108,6 +109,9 @@ CVARD(Bool, r_showhitbox, false, CVAR_GLOBALCONFIG | CVAR_CHEAT, "show actor hit
 
 void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+	int gl_spritelight = get_gl_spritelight();
+
+	state.SetShadeVertex(gl_spritelight == 1);
 	bool additivefog = false;
 	bool foglayer = false;
 	int rel = fullbright ? 0 : getExtraLight();
@@ -181,7 +185,7 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 			if (dynlightindex == -1)	// only set if we got no light buffer index. This covers all cases where sprite lighting is used.
 			{
 				float out[3] = {};
-				di->GetDynSpriteLight(gl_light_sprites ? actor : nullptr, gl_light_particles ? particle : nullptr, out);
+				di->GetDynSpriteLight(gl_light_sprites ? actor : nullptr, gl_light_particles ? particle : nullptr, (gl_light_particles && spr != nullptr) ? &spr->StaticLightsTraceCache : nullptr, out);
 				state.SetDynLight(out[0], out[1], out[2]);
 			}
 		}
@@ -237,8 +241,18 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 	}
 
 	uint32_t spritetype = actor? uint32_t(actor->renderflags & RF_SPRITETYPEMASK) : 0;
-	if (texture) state.SetMaterial(texture, UF_Sprite, (spritetype == RF_FACESPRITE) ? CTF_Expand : 0, clampmode, translation, OverrideShader);
+	if (texture) state.SetMaterial(texture, UF_Sprite, (spritetype == RF_FACESPRITE) ? CTF_Expand : 0, clampmode, translation, OverrideShader, actor ? actor->GetClass() : nullptr);
 	else if (!modelframe) state.EnableTexture(false);
+
+	if (actor && texture)
+	{
+		int binding = state.getShaderIndex();
+
+		if(binding >= FIRST_USER_SHADER)
+		{
+			usershaders[binding - FIRST_USER_SHADER].BindActorFields(actor);
+		}
+	}
 
 	//SetColor(lightlevel, rel, Colormap, trans);
 
@@ -282,9 +296,23 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 			SetSplitPlanes(state, topp, bottomp);
 		}
 
+		if(actor)
+		{
+			state.SetActorCenter(actor->X(), actor->Center(), actor->Y());
+		}
+
 		if (!modelframe)
 		{
 			state.SetNormal(0, 0, 0);
+
+			if(gl_spritelight > 0)
+			{
+				state.SetLightNoNormals(true);
+				if(actor && gl_spritelight < 2)
+				{
+					state.SetUseSpriteCenter(true);
+				}
+			}
 
 			CreateVertices(di, state);
 
@@ -292,8 +320,10 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 			{
 				state.SetDepthBias(-1, -128);
 			}
-			state.SetLightIndex(-1);
+
+			state.SetLightIndex(dynlightindex);
 			state.Draw(DT_TriangleStrip, vertexindex, 4);
+			state.SetLightIndex(-1);
 
 			if (foglayer)
 			{
@@ -304,6 +334,8 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 				state.Draw(DT_TriangleStrip, vertexindex, 4);
 				state.SetTextureMode(TM_NORMAL);
 			}
+			state.SetLightNoNormals(false);
+			state.SetUseSpriteCenter(false);
 		}
 		else
 		{
@@ -395,6 +427,7 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 	state.SetAddColor(0);
 	state.EnableTexture(true);
 	state.SetDynLight(0, 0, 0);
+	state.SetShadeVertex(false);
 }
 
 //==========================================================================
@@ -619,9 +652,9 @@ bool HWSprite::CalculateVertices(HWDrawInfo* di, FVector3* v, DVector3* vp)
 inline void HWSprite::PutSprite(HWDrawInfo *di, FRenderState& state, bool translucent)
 {
 	// That's a lot of checks...
-	if (modelframe && !modelframe->isVoxel && !(modelframeflags & MDL_NOPERPIXELLIGHTING) && RenderStyle.BlendOp != STYLEOP_Shadow && gl_light_sprites && di->Level->HasDynamicLights && !di->isFullbrightScene() && !fullbright)
+	if ((get_gl_spritelight() > 0 || (modelframe && !modelframe->isVoxel && !(modelframeflags & MDL_NOPERPIXELLIGHTING))) && RenderStyle.BlendOp != STYLEOP_Shadow && gl_light_sprites && di->Level->HasDynamicLights && !di->isFullbrightScene() && !fullbright)
 	{
-		hw_GetDynModelLight(di->drawctx, actor, lightdata);
+		di->GetDynSpriteLightList(actor, lightdata, modelframe && !modelframe->isVoxel);
 		dynlightindex = state.UploadLights(lightdata);
 	}
 	else
@@ -833,7 +866,7 @@ void HWSprite::Process(HWDrawInfo *di, FRenderState& state, AActor* thing, secto
 	if (isFogball)
 	{
 		Fogball fogball;
-		fogball.Position = FVector3(thing->Pos());
+		fogball.Position = FVector3(thing->PosRelative(r_viewpoint.sector));
 		fogball.Radius = (float)thing->args[3];
 		fogball.Color = FVector3(powf(thing->args[0] * (1.0f / 255.0f), 2.2), powf(thing->args[1] * (1.0f / 255.0f), 2.2), powf(thing->args[2] * (1.0f / 255.0f), 2.2));
 		fogball.Fog = (float)thing->Alpha;
@@ -843,7 +876,7 @@ void HWSprite::Process(HWDrawInfo *di, FRenderState& state, AActor* thing, secto
 
 	if (thing->IsKindOf(NAME_Corona))
 	{
-		di->Coronas.Push(thing);
+		Coronas.Push(thing);
 		return;
 	}
 
@@ -1424,6 +1457,7 @@ void HWSprite::Process(HWDrawInfo *di, FRenderState& state, AActor* thing, secto
 	}
 
 	particle = nullptr;
+	spr = nullptr;
 
 	const bool drawWithXYBillboard = (!(actor->renderflags & RF_FORCEYBILLBOARD)
 		&& (actor->renderflags & RF_SPRITETYPEMASK) == RF_FACESPRITE
@@ -1476,6 +1510,7 @@ void HWSprite::ProcessParticle(HWDrawInfo *di, FRenderState& state, particle_t *
 	index = 0;
 	actor = nullptr;
 	this->particle = particle;
+	this->spr = spr;
 	fullbright = particle->flags & SPF_FULLBRIGHT;
 
 	if (di->isFullbrightScene()) 
