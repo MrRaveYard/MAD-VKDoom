@@ -30,6 +30,7 @@ CVAR(Bool, lm_ao, true, CVAR_ARCHIVE);
 CVAR(Bool, lm_softshadows, true, CVAR_ARCHIVE);
 CVAR(Bool, lm_bounce, true, CVAR_ARCHIVE);
 CVAR(Bool, lm_dynamic, true, CVAR_ARCHIVE);
+CVAR(Bool, lm_dynlights, false, CVAR_ARCHIVE);
 
 VkLightmapper::VkLightmapper(VulkanRenderDevice* fb) : fb(fb)
 {
@@ -73,8 +74,7 @@ void VkLightmapper::ReleaseResources()
 void VkLightmapper::SetLevelMesh(LevelMesh* level)
 {
 	mesh = level;
-	if (mesh)
-		UpdateAccelStructDescriptors();
+	UpdateAccelStructDescriptors();
 
 	lightmapRaytraceLast.Reset();
 	lastPixelCount = 0;

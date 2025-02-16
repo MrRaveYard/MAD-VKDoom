@@ -126,7 +126,6 @@ private:
 
 	bool useRayQuery = true;
 
-	LevelMesh NullMesh;
 	LevelMesh* Mesh = nullptr;
 
 	std::unique_ptr<VulkanBuffer> VertexBuffer;
@@ -192,11 +191,15 @@ private:
 	void UploadLights();
 
 	template<typename T>
-	void UploadRanges(const MeshBufferUploads& ranges, const T* srcbuffer, VulkanBuffer* destbuffer);
+	void UploadRanges(const MeshBufferUploads& ranges, const T* srcbuffer, VulkanBuffer* destbuffer, const char* buffername);
+
+	void* GetUploadPtr(size_t size);
+	void UploadData(VulkanBuffer* dest, size_t destOffset, const void* src, size_t size, const char* buffername);
 
 	VkLevelMesh* Mesh = nullptr;
 	uint8_t* data = nullptr;
 	size_t datapos = 0;
+	size_t datasize = 0;
 	std::unique_ptr<VulkanBuffer> transferBuffer;
 
 	struct CopyCommand

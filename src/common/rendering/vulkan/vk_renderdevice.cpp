@@ -45,6 +45,7 @@
 #include "vulkan/vk_postprocess.h"
 #include "vulkan/vk_levelmesh.h"
 #include "vulkan/vk_lightmapper.h"
+#include "vulkan/vk_lightprober.h"
 #include "vulkan/pipelines/vk_renderpass.h"
 #include "vulkan/descriptorsets/vk_descriptorset.h"
 #include "vulkan/shaders/vk_shader.h"
@@ -227,6 +228,9 @@ void VulkanRenderDevice::InitializeState()
 	uniformblockalignment = (unsigned int)mDevice->PhysicalDevice.Properties.Properties.limits.minUniformBufferOffsetAlignment;
 	maxuniformblock = std::min(mDevice->PhysicalDevice.Properties.Properties.limits.maxUniformBufferRange, (uint32_t)1024 * 1024);
 
+	NullMesh.reset(new LevelMesh());
+	levelMesh = NullMesh.get();
+
 	mCommands.reset(new VkCommandBufferManager(this));
 
 	mSamplerManager.reset(new VkSamplerManager(this));
@@ -244,6 +248,7 @@ void VulkanRenderDevice::InitializeState()
 	mRenderPassManager.reset(new VkRenderPassManager(this));
 	mLevelMesh.reset(new VkLevelMesh(this));
 	mLightmapper.reset(new VkLightmapper(this));
+	mLightprober.reset(new VkLightprober(this));
 
 	mBufferManager->Init();
 
@@ -314,6 +319,15 @@ void VulkanRenderDevice::RenderTextureView(FCanvasTexture* tex, std::function<vo
 	mRenderState->SetRenderTarget(&GetBuffers()->SceneColor, GetBuffers()->SceneDepthStencil.View.get(), GetBuffers()->GetWidth(), GetBuffers()->GetHeight(), VK_FORMAT_R16G16B16A16_SFLOAT, GetBuffers()->GetSceneSamples());
 
 	tex->SetUpdated(true);
+}
+
+void VulkanRenderDevice::RenderEnvironmentMap(std::function<void(IntRect& bounds, int side)> renderFunc)
+{
+	mLightprober->RenderEnvironmentMap(std::move(renderFunc));
+	TArray<uint16_t> irradianceMap = mLightprober->GenerateIrradianceMap();
+	TArray<uint16_t> prefilterMap = mLightprober->GeneratePrefilterMap();
+	mTextureManager->CreateIrradiancemap(32, 6, std::move(irradianceMap));
+	mTextureManager->CreatePrefiltermap(128, 6, std::move(prefilterMap));
 }
 
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
@@ -521,8 +535,7 @@ void VulkanRenderDevice::BeginFrame()
 	{
 		levelMeshChanged = false;
 		mLevelMesh->SetLevelMesh(levelMesh);
-		if (levelMesh)
-			GetTextureManager()->CreateLightmap(levelMesh->Lightmap.TextureSize, levelMesh->Lightmap.TextureCount, std::move(levelMesh->Lightmap.TextureData));
+		GetTextureManager()->CreateLightmap(levelMesh->Lightmap.TextureSize, levelMesh->Lightmap.TextureCount, std::move(levelMesh->Lightmap.TextureData));
 		GetLightmapper()->SetLevelMesh(levelMesh);
 	}
 
@@ -586,6 +599,11 @@ void VulkanRenderDevice::PrintStartupLog()
 
 void VulkanRenderDevice::SetLevelMesh(LevelMesh* mesh)
 {
+	if (!mesh) // Vulkan must have a mesh for its data structures in shaders to remain sane
+	{
+		NullMesh.reset(new LevelMesh()); // we must have a completely new mesh here as the upload ranges needs to reset as well
+		mesh = NullMesh.get();
+	}
 	levelMesh = mesh;
 	levelMeshChanged = true;
 }
@@ -686,9 +704,9 @@ int VulkanRenderDevice::GetLevelMeshPipelineID(const MeshApplyData& applyData, c
 
 	VkPipelineKey pipelineKey;
 	pipelineKey.DrawType = DT_Triangles;
-	pipelineKey.VertexFormat = levelVertexFormatIndex;
 	pipelineKey.RenderStyle = applyData.RenderStyle;
 	pipelineKey.DepthFunc = applyData.DepthFunc;
+	pipelineKey.ShaderKey.VertexFormat = levelVertexFormatIndex;
 	if (applyData.SpecialEffect > EFF_NONE)
 	{
 		pipelineKey.ShaderKey.SpecialEffect = applyData.SpecialEffect;

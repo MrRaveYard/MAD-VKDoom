@@ -297,6 +297,11 @@ std::vector<VulkanPhysicalDevice> VulkanInstance::GetPhysicalDevices(VkInstance 
 				*next = &dev.Features.DescriptorIndexing;
 				next = &dev.Features.DescriptorIndexing.pNext;
 			}
+			if (checkForExtension(VK_EXT_DEVICE_FAULT_EXTENSION_NAME))
+			{
+				*next = &dev.Features.Fault;
+				next = &dev.Features.Fault.pNext;
+			}
 
 			vkGetPhysicalDeviceFeatures2(dev.Device, &deviceFeatures2);
 			dev.Features.Features = deviceFeatures2.features;
@@ -304,6 +309,7 @@ std::vector<VulkanPhysicalDevice> VulkanInstance::GetPhysicalDevices(VkInstance 
 			dev.Features.AccelerationStructure.pNext = nullptr;
 			dev.Features.RayQuery.pNext = nullptr;
 			dev.Features.DescriptorIndexing.pNext = nullptr;
+			dev.Features.Fault.pNext = nullptr;
 		}
 		else
 		{
@@ -351,9 +357,12 @@ VkBool32 VulkanInstance::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT me
 	if (parts.size() == 3)
 	{
 		msg = parts[2];
-		size_t pos = msg.find(" The Vulkan spec states:");
+		size_t pos = msg.find("The Vulkan spec states:");
 		if (pos != std::string::npos)
 			msg = msg.substr(0, pos);
+
+		while (!msg.empty() && (msg.back() == '\n' || msg.back() == '\r' || msg.back() == ' '))
+			msg.pop_back();
 
 		if (callbackData->objectCount > 0)
 		{
