@@ -333,7 +333,7 @@ static void CheckTimer(FRenderState &state, uint64_t ShaderStartTime)
 		state.firstFrame = screen->FrameTime - 1;
 }
 
-LightProbeIncrementalBuilder lightProbeBuilder;
+LightProbeIncrementalBuilder lightProbeBuilder(DFrameBuffer::irrandiaceMapTexelCount, DFrameBuffer::prefilterMapTexelCount, DFrameBuffer::irradianceMapChannelCount, DFrameBuffer::prefilterMapChannelCount);
 
 sector_t* RenderView(player_t* player)
 {
@@ -404,56 +404,42 @@ sector_t* RenderView(player_t* player)
 
 		if (gl_lightprobe)
 		{
-
 			// Render the light probes if not found in a lump
 			// To do: we need light probe actors
 
-			AActor* lightprobe = level.GetThinkerIterator<AActor>(NAME_LightProbe, STAT_DEFAULT).Next();
+			AActor* lightprobe = level.GetThinkerIterator<AActor>(NAME_LightProbe, STAT_INFO).Next();
 			if (lightprobe)
 			{
-				/*TArray<uint16_t> irradianceMap;
-				TArray<uint16_t> prefilteredMap;
+				auto renderEnvMap = [&](const LightProbe& probe, TArrayView<uint16_t>& irradianceMap, TArrayView<uint16_t>& prefilteredMap) {
+					lightprobe->SetOrigin(DVector3(probe.position), false); // crime against nature
 
-				screen->RenderEnvironmentMap([=](IntRect& bounds, int side)
-					{
+					// The renderer interpolates camera in its own mechanism that has to be disabled when moving around the single probe
+					bool noInterpolate = r_NoInterpolate;
+					r_NoInterpolate = true;
+
+					screen->RenderEnvironmentMap([&](IntRect& bounds, int side) {
 						FRenderViewpoint probevp;
 						RenderViewpoint(probevp, lightprobe, &bounds, 90.0, 1.0f, 1.0f, false, false, side);
 					}, irradianceMap, prefilteredMap);
 
-				screen->UploadEnvironmentMaps(1, std::move(irradianceMap), std::move(prefilteredMap));*/
+					r_NoInterpolate = noInterpolate;
+				};
 
-				auto renderEnvMap = [&](const LightProbe& probe, TArray<uint16_t>& irradianceMap, TArray<uint16_t>& prefilteredMap)
-					{
-						auto oldPos = lightprobe->Pos();
-
-						lightprobe->SetOrigin(DVector3(probe.position), false); // crime against nature 
-						lightprobe->ClearInterpolation();
-
-						r_NoInterpolate = true;
-
-						// Printf("%p | %f %f %f\n", &probe, probe.position.X, probe.position.Y, probe.position.Z);
-
-						screen->RenderEnvironmentMap([&](IntRect& bounds, int side)
-							{
-								FRenderViewpoint probevp;
-								RenderViewpoint(probevp, lightprobe, &bounds, 90.0, 1.0f, 1.0f, false, false, side);
-							}, irradianceMap, prefilteredMap);
-
-						r_NoInterpolate = false;
-					};
+				auto renderEnvScreen = [&](const TArray<uint16_t>& irradianceMaps, const TArray<uint16_t>& prefilteredMaps) {
+					screen->UploadEnvironmentMaps(level.lightProbes.size(), irradianceMaps, prefilteredMaps);
+				};
 
 				lightProbeBuilder.Step(
 					level.lightProbes,
 					renderEnvMap,
-					[&](TArray<uint16_t>&& irradianceMaps, TArray<uint16_t>&& prefilteredMaps) {
-						screen->UploadEnvironmentMaps(level.lightProbes.size(), std::move(irradianceMaps), std::move(prefilteredMaps));
-					}
+					renderEnvScreen
 				);
 			}
 			else
 			{
 				Printf("Warning: spawning LightProbe\n");
-				Spawn(&level, NAME_LightProbe);
+				auto probe = Spawn(&level, NAME_LightProbe);
+				probe->ChangeStatNum(STAT_INFO);
 			}
 		}
 
@@ -477,57 +463,6 @@ sector_t* RenderView(player_t* player)
 	}
 	All.Unclock();
 	return retsec;
-}
-
-void LightProbeIncrementalBuilder::Step(const TArray<LightProbe>& probes, std::function<void(const LightProbe&, TArray<uint16_t>&, TArray<uint16_t>&)> renderScene, std::function<void(TArray<uint16_t>&&, TArray<uint16_t>&&)> uploadEnv)
-{
-	if (lastIndex >= probes.size())
-	{
-		lastIndex = 0;
-		collected = 0;
-
-		if (!probes.size())
-		{
-			return;
-		}
-	}
-
-	TArray<uint16_t> irradianceMap;
-	TArray<uint16_t> prefilterMap;
-
-	renderScene(probes[lastIndex++], irradianceMap, prefilterMap);
-	++collected;
-
-	this->irradianceMaps.Append(irradianceMap);
-	this->prefilterMaps.Append(prefilterMap);
-
-	if (lastIndex >= probes.size())
-	{
-		if (collected == probes.size())
-		{
-			uploadEnv(std::move(this->irradianceMaps), std::move(this->prefilterMaps));
-		}
-		this->irradianceMaps.Clear();
-		this->prefilterMaps.Clear();
-	}
-}
-
-void LightProbeIncrementalBuilder::Full(const TArray<LightProbe>& probes, std::function<void(const LightProbe&, TArray<uint16_t>&, TArray<uint16_t>&)> renderScene, std::function<void(TArray<uint16_t>&&, TArray<uint16_t>&&)> uploadEnv)
-{
-	if (lastIndex >= probes.size())
-	{
-		lastIndex = 0;
-
-		if (!probes.size())
-		{
-			return;
-		}
-	}
-
-	while (lastIndex < probes.size())
-	{
-		Step(probes, renderScene, uploadEnv);
-	}
 }
 
 ADD_STAT(lightprobes)

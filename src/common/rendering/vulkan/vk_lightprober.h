@@ -35,8 +35,8 @@ public:
 	~VkLightprober();
 
 	void RenderEnvironmentMap(std::function<void(IntRect& bounds, int side)> renderFunc);
-	TArray<uint16_t> GenerateIrradianceMap();
-	TArray<uint16_t> GeneratePrefilterMap();
+	bool GenerateIrradianceMap(TArrayView<uint16_t>& databuffer);
+	bool GeneratePrefilterMap(TArrayView<uint16_t>& databuffer);
 
 private:
 	void CreateBrdfLutResources();
@@ -89,12 +89,12 @@ private:
 		std::unique_ptr<VulkanImageView> views[6];
 	} irradianceMap;
 
-	struct
+	struct PrefilterMap
 	{
 		enum
 		{
 			maxlevels = 5,
-			levelsSize = 128 * 128 + 64 * 64 + 32 * 32 + 16 * 16 + 8 * 8
+			levelsSize = DFrameBuffer::prefilterMapLevelsSize
 		};
 		std::unique_ptr<VulkanShader> shader;
 		std::unique_ptr<VulkanDescriptorSetLayout> descriptorSetLayout;
