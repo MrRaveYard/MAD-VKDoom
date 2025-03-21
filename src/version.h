@@ -106,8 +106,8 @@ const char *GetVersionString();
 #define VR3D_ENABLED
 
 // More stuff that needs to be different for derivatives.
-#define GAMENAME "VKDoom"
-#define WGAMENAME L"VKDoom"
+#define GAMENAME "MAD-VKDoom"
+#define WGAMENAME L"MAD-VKDoom"
 #define GAMENAMELOWERCASE "mad-vkdoom"
 #define TOOLNAMELOWERCASE "mad-vktool"
 #define QUERYIWADDEFAULT true
