@@ -48,6 +48,10 @@
 
 #include "p_visualthinker.h"
 
+#ifdef _MSC_VER
+#include <excpt.h> // define EXCEPTION_EXECUTE_HANDLER
+#endif
+
 static int ThinkCount;
 static cycle_t ThinkCycles;
 extern cycle_t BotSupportCycles;
@@ -585,6 +589,46 @@ void FThinkerList::SaveList(FSerializer &arc)
 //
 //==========================================================================
 
+const char* GetObjectClassNameChars(const DObject* object)
+{
+	if (object)
+	{
+		#ifdef _MSC_VER
+		__try {
+		#endif
+			const auto cls = object->GetClass();
+
+			if (cls)
+			{
+				const auto typeChars = cls->TypeName.GetChars();
+
+				if (!typeChars) // shouldn't happen?
+				{
+					return "(null class typename, likely corrupted memory)";
+				}
+
+				return typeChars;
+			}
+
+			return "(null class, likely corrupted memory)";
+		
+		#ifdef _MSC_VER
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER) {
+			return "(unknown, read access violation)";
+		}
+		#endif
+	}
+
+	return "(null pointer)";
+}
+
+//==========================================================================
+//
+//
+//
+//==========================================================================
+
 int FThinkerList::TickThinkers(FThinkerList *dest)
 {
 	int count = 0;
@@ -611,7 +655,7 @@ int FThinkerList::TickThinkers(FThinkerList *dest)
 		}
 		else if (dest != nullptr)
 		{
-			I_Error("There is a thinker in the fresh list that has already ticked.\n");
+			I_Error("There is a thinker class '%s' in the fresh list that has already ticked.\n", GetObjectClassNameChars(node));
 		}
 
 		if (!(node->ObjectFlags & OF_EuthanizeMe))
@@ -656,7 +700,7 @@ int FThinkerList::ProfileThinkers(FThinkerList *dest)
 		}
 		else if (dest != nullptr)
 		{
-			I_Error("There is a thinker in the fresh list that has already ticked.\n");
+			I_Error("There is a thinker class '%s' in the fresh list that has already ticked.\n", GetObjectClassNameChars(node));
 		}
 
 		if (!(node->ObjectFlags & OF_EuthanizeMe))
