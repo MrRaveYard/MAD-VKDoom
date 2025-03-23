@@ -168,7 +168,7 @@ CUSTOM_CVAR(Int, gl_wireframe, 0, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 
 CVAR(Color, gl_wireframecolor, -1, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 
-CUSTOM_CVAR(Int, gl_spritelight, -1, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+CUSTOM_CVAR(Int, gl_spritelight, 0, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 {
 	if (self < -1 || self > 2) self = -1; // default auto, auto (rt 1, non-rt 0) = -1 gpu vertex, 0 = cpu, 1 = gpu vertex, 2 = gpu pixel
 }
