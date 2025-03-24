@@ -3029,6 +3029,14 @@ void MapLoader::InitLevelMesh(MapData* map)
 			Level->levelMesh->PackStaticLightmapAtlas();
 		}
 	}
+
+	// Tracelight voxel cache
+	Level->TracelightVoxelCaches.Clear();
+
+	for (unsigned i = 0, size = Level->subsectors.Size(); i < size; ++i)
+	{
+		Level->TracelightVoxelCaches[Level->TracelightVoxelCaches.Push(nullptr)];
+	}
 }
 
 bool MapLoader::LoadLightmap(MapData* map)

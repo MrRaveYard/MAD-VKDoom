@@ -1700,6 +1700,8 @@ struct FPortalCoverage
 
 void BuildPortalCoverage(FLevelLocals *Level, FPortalCoverage *coverage, subsector_t *subsector, const DVector2 &displacement);
 
+class TraceLightVoxelCache;
+
 struct subsector_t
 {
 	sector_t	*sector;
@@ -1724,6 +1726,8 @@ struct subsector_t
 	FPortalCoverage	portalcoverage[2];
 	TArray<DVisualThinker *> sprites;
 	TArrayView<int> LightmapTiles[2]; // all lightmap tiles belonging to this subsector
+
+	TraceLightVoxelCache* traceLightCache;
 };
 
 

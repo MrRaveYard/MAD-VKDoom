@@ -173,6 +173,11 @@ CUSTOM_CVAR(Int, gl_spritelight, 0, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
 	if (self < -1 || self > 2) self = -1; // default auto, auto (rt 1, non-rt 0) = -1 gpu vertex, 0 = cpu, 1 = gpu vertex, 2 = gpu pixel
 }
 
+CUSTOM_CVAR(Int, gl_cachespritetracelights, 1, CVAR_GLOBALCONFIG | CVAR_ARCHIVE)
+{
+	if (self < -1 || self > 2) self = -1; // 0 off, 1 on (will be likely tri-state in the future)
+}
+
 #include "common/rendering/vulkan/vk_renderdevice.h"
 
 int get_gl_spritelight()

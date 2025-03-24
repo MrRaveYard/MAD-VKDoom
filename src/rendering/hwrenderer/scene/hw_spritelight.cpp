@@ -41,6 +41,8 @@
 #include <cmath>	// needed for std::floor on mac
 #include "hw_cvars.h"
 
+EXTERN_CVAR(Int, gl_cachespritetracelights);
+
 template<class T>
 T smoothstep(const T edge0, const T edge1, const T x)
 {
@@ -132,11 +134,30 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 	if (fullbright || get_gl_spritelight() > 0)
 		return;
 
-	FDynamicLight *light;
+	subsector_t* subsector = gl_cachespritetracelights ? (self ? self->subsector : Level->PointInRenderSubsector(x, y)) : nullptr;
+
+	TraceLightVoxelCache::Probe* probe = subsector && subsector->traceLightCache ? &subsector->traceLightCache->Get(FVector3(float(x), float(y), float(z))) : nullptr;
+
+	bool calculateTraceLights = subsector;
+
+	if (probe && probe->isValid)
+	{
+		out[0] = probe->r / 128.f;
+		out[1] = probe->g / 128.f;
+		out[2] = probe->b / 128.f;
+
+		calculateTraceLights = false;
+
+		// Printf("%p | %p | %.2f %.2f %.2f | %d %d %d (CACHED)\n", subsector->traceLightCache, probe, out[0], out[1], out[2], probe->r, probe->g, probe->b);
+	}
+	else
+	{
+		out[0] = out[1] = out[2] = 0.f;
+	}
+
+	FDynamicLight* light;
 	float frac, lr, lg, lb;
 	float radius;
-	
-	out[0] = out[1] = out[2] = 0.f;
 
 	ActorTraceStaticLight staticLight(self);
 
@@ -147,16 +168,18 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 			traceCache->Pos = DVector3(x, y, z);
 		}
 
-		out[0] = Level->SunColor.X * Level->SunIntensity;
-		out[1] = Level->SunColor.Y * Level->SunIntensity;
-		out[2] = Level->SunColor.Z * Level->SunIntensity;
+		out[0] += Level->SunColor.X * Level->SunIntensity;
+		out[1] += Level->SunColor.Y * Level->SunIntensity;
+		out[2] += Level->SunColor.Z * Level->SunIntensity;
 	}
+
+	float traceLights[3] = {0.0f, 0.0f, 0.0f};
 
 	// Go through both light lists
 	while (node)
 	{
 		light=node->lightsource;
-		if (light->ShouldLightActor(self))
+		if (light->ShouldLightActor(self) && (!subsector || calculateTraceLights || !light->Trace()))
 		{
 			float dist;
 			FVector3 L;
@@ -234,6 +257,13 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 							lb = (bright - lb) * -1;
 						}
 
+						if (light->Trace())
+						{
+							traceLights[0] += lr * frac;
+							traceLights[1] += lr * frac;
+							traceLights[2] += lr * frac;
+						}
+
 						out[0] += lr * frac;
 						out[1] += lg * frac;
 						out[2] += lb * frac;
@@ -243,6 +273,77 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 		}
 		node = node->nextLight;
 	}
+
+	// Save to cache
+	if (calculateTraceLights)
+	{
+		if (!subsector->traceLightCache)
+		{
+			FVector3 min, max;
+
+			const auto& box = subsector->bbox;
+
+			min.X = box.Left();
+			min.Y = box.Bottom();
+			min.Z = subsector->sector->floorplane.ZatPoint(min); // TODO better solution
+
+			max.X = box.Right();
+			max.Y = box.Top();
+			max.Z = subsector->sector->ceilingplane.ZatPoint(max);
+
+			if (min.Z > max.Z)
+			{
+				std::swap(min.Z, max.Z);
+			}
+
+			// Printf("%f %f %f -> %f %f %f", min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+
+			Level->TracelightVoxelCaches[subsector->Index()].reset(subsector->traceLightCache = new TraceLightVoxelCache(min, max, 32)); // allocate new cache
+		
+			Printf("Debug Cache: Allocated %lu probes\n", subsector->traceLightCache->Size());
+		}
+		
+		if (!probe)
+		{
+			probe = &subsector->traceLightCache->Get(FVector3(float(x), float(y), float(z)));
+		}
+
+		
+		probe->isValid = true;
+		probe->r = std::clamp(uint8_t(traceLights[0] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
+		probe->g = std::clamp(uint8_t(traceLights[1] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
+		probe->b = std::clamp(uint8_t(traceLights[2] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
+
+		if(developer >= 3)
+			Printf("%p | %p | %.2f %.2f %.2f | %d %d %d | %f %f %f\n", subsector->traceLightCache, probe, traceLights[0], traceLights[1], traceLights[2], probe->r, probe->g, probe->b, out[0], out[1], out[2]);
+	}
+}
+
+ADD_STAT(tracelightcache)
+{
+	FString out;
+
+	unsigned totalProbes = 0;
+	unsigned subsectors = 0;
+
+	for (const auto& cache : level.TracelightVoxelCaches)
+	{
+		if (cache)
+		{
+			++subsectors;
+			totalProbes += cache->Size();
+		}
+	}
+
+	out.Format(
+		"Subsectors: %u\n"
+		"Alllocated probes: %u\n"
+		"Estimated memory usage: %.3fMB\n",
+		subsectors,
+		totalProbes,
+		double(totalProbes * 4) / 1000.0 / 1000.0);
+
+	return out;
 }
 
 void HWDrawInfo::GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trace_cache_t * traceCache, float *out)

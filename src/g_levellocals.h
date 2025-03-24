@@ -476,6 +476,7 @@ public:
 	uint16_t LightmapSampleDistance = 0;
 	bool LightBounce = false;
 	bool AmbientOcclusion = false;
+	TArray<std::unique_ptr<TraceLightVoxelCache>> TracelightVoxelCaches;
 
 	// Portal information.
 	FDisplacementTable Displacements;
