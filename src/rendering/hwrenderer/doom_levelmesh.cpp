@@ -53,6 +53,16 @@ static int InvalidateLightmap()
 		tile.NeedsUpdate = true;
 	}
 
+	for (auto& subsector : level.subsectors)
+	{
+		subsector.traceLightCache = nullptr;
+	}
+
+	for (auto& cache : level.TracelightVoxelCaches)
+	{
+		cache.reset();
+	}
+
 	return count;
 }
 

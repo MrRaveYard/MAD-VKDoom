@@ -129,12 +129,15 @@ float inverseSquareAttenuation(float dist, float radius, float strength)
 	return (b * b) / (dist * dist + 1.0) * strength;
 }
 
-void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright)
+void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright, subsector_t* subsector)
 {
 	if (fullbright || get_gl_spritelight() > 0)
 		return;
 
-	subsector_t* subsector = gl_cachespritetracelights ? (self ? self->subsector : Level->PointInRenderSubsector(x, y)) : nullptr;
+	if (gl_cachespritetracelights <= 0)
+	{
+		subsector = nullptr;
+	}
 
 	TraceLightVoxelCache::Probe* probe = subsector && subsector->traceLightCache ? &subsector->traceLightCache->Get(FVector3(float(x), float(y), float(z))) : nullptr;
 
@@ -159,21 +162,32 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 	float frac, lr, lg, lb;
 	float radius;
 
+	float traceLights[3] = { 0.0f, 0.0f, 0.0f };
+	bool hasTraceLight = false;
+
 	ActorTraceStaticLight staticLight(self);
 
-	if (ActorTraceStaticLight::TraceSunVisibility(x, y, z, traceCache, (self ? staticLight.ActorMoved : traceCache ? traceCache->Pos != DVector3(x, y, z) : false)))
+	if ((!subsector || calculateTraceLights) && ActorTraceStaticLight::TraceSunVisibility(x, y, z, traceCache, (self ? staticLight.ActorMoved : traceCache ? traceCache->Pos != DVector3(x, y, z) : false)))
 	{
 		if(!self && traceCache)
 		{
 			traceCache->Pos = DVector3(x, y, z);
 		}
 
+		if (!Level->SunColor.isZero())
+		{
+			hasTraceLight = true;
+		}
+
+		traceLights[0] += Level->SunColor.X * Level->SunIntensity;
+		traceLights[1] += Level->SunColor.Y * Level->SunIntensity;
+		traceLights[2] += Level->SunColor.Z * Level->SunIntensity;
+
 		out[0] += Level->SunColor.X * Level->SunIntensity;
 		out[1] += Level->SunColor.Y * Level->SunIntensity;
 		out[2] += Level->SunColor.Z * Level->SunIntensity;
 	}
 
-	float traceLights[3] = {0.0f, 0.0f, 0.0f};
 
 	// Go through both light lists
 	while (node)
@@ -262,6 +276,7 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 							traceLights[0] += lr * frac;
 							traceLights[1] += lr * frac;
 							traceLights[2] += lr * frac;
+							hasTraceLight = true;
 						}
 
 						out[0] += lr * frac;
@@ -275,7 +290,7 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 	}
 
 	// Save to cache
-	if (calculateTraceLights)
+	if (calculateTraceLights && hasTraceLight)
 	{
 		if (!subsector->traceLightCache)
 		{
@@ -296,11 +311,10 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 				std::swap(min.Z, max.Z);
 			}
 
-			// Printf("%f %f %f -> %f %f %f", min.X, min.Y, min.Z, max.X, max.Y, max.Z);
-
 			Level->TracelightVoxelCaches[subsector->Index()].reset(subsector->traceLightCache = new TraceLightVoxelCache(min, max, 32)); // allocate new cache
 		
-			Printf("Debug Cache: Allocated %lu probes\n", subsector->traceLightCache->Size());
+			if(developer >= 5)
+				Printf("Allocated %lu tracelight probes\n", subsector->traceLightCache->Size());
 		}
 		
 		if (!probe)
@@ -314,8 +328,8 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 		probe->g = std::clamp(uint8_t(traceLights[1] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
 		probe->b = std::clamp(uint8_t(traceLights[2] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
 
-		if(developer >= 3)
-			Printf("%p | %p | %.2f %.2f %.2f | %d %d %d | %f %f %f\n", subsector->traceLightCache, probe, traceLights[0], traceLights[1], traceLights[2], probe->r, probe->g, probe->b, out[0], out[1], out[2]);
+		if (developer >= 11)
+			Printf("Tracelight probe: %p | %p | %.2f %.2f %.2f | %d %d %d | %f %f %f\n", subsector->traceLightCache, probe, traceLights[0], traceLights[1], traceLights[2], probe->r, probe->g, probe->b, out[0], out[1], out[2]);
 	}
 }
 
@@ -350,11 +364,11 @@ void HWDrawInfo::GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trac
 {
 	if (thing)
 	{
-		GetDynSpriteLight(thing, &thing->StaticLightsTraceCache, thing->X(), thing->Y(), thing->Center(), thing->section->lighthead, thing->Sector->PortalGroup, out, (thing->flags5 & MF5_BRIGHT));
+		GetDynSpriteLight(thing, &thing->StaticLightsTraceCache, thing->X(), thing->Y(), thing->Center(), thing->section->lighthead, thing->Sector->PortalGroup, out, (thing->flags5 & MF5_BRIGHT), thing->subsector);
 	}
 	else if (particle)
 	{
-		GetDynSpriteLight(nullptr, traceCache, particle->Pos.X, particle->Pos.Y, particle->Pos.Z, particle->subsector->section->lighthead, particle->subsector->sector->PortalGroup, out, (particle->flags & SPF_FULLBRIGHT));
+		GetDynSpriteLight(nullptr, traceCache, particle->Pos.X, particle->Pos.Y, particle->Pos.Z, particle->subsector->section->lighthead, particle->subsector->sector->PortalGroup, out, (particle->flags & SPF_FULLBRIGHT), particle->subsector);
 	}
 }
 

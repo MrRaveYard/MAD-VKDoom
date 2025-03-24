@@ -314,7 +314,7 @@ public:
 	void AddOtherFloorPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 	void AddOtherCeilingPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 
-	void GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright);
+	void GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright, subsector_t* subsector);
 	void GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trace_cache_t * traceCache, float *out);
 
 	void GetDynSpriteLightList(AActor *self, double x, double y, double z, sun_trace_cache_t * traceCache, FDynLightData &modellightdata, bool isModel);
