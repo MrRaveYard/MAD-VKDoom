@@ -145,10 +145,7 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 
 	if (probe && probe->isValid)
 	{
-		out[0] = probe->r / 128.f;
-		out[1] = probe->g / 128.f;
-		out[2] = probe->b / 128.f;
-
+		probe->Get(out[0], out[1], out[2]);
 		calculateTraceLights = false;
 
 		// Printf("%p | %p | %.2f %.2f %.2f | %d %d %d (CACHED)\n", subsector->traceLightCache, probe, out[0], out[1], out[2], probe->r, probe->g, probe->b);
@@ -274,8 +271,8 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 						if (light->Trace())
 						{
 							traceLights[0] += lr * frac;
-							traceLights[1] += lr * frac;
-							traceLights[2] += lr * frac;
+							traceLights[1] += lg * frac;
+							traceLights[2] += lb * frac;
 							hasTraceLight = true;
 						}
 
@@ -321,15 +318,15 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache,
 		{
 			probe = &subsector->traceLightCache->Get(FVector3(float(x), float(y), float(z)));
 		}
-
 		
-		probe->isValid = true;
-		probe->r = std::clamp(uint8_t(traceLights[0] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
-		probe->g = std::clamp(uint8_t(traceLights[1] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
-		probe->b = std::clamp(uint8_t(traceLights[2] * 128.f), uint8_t(0), uint8_t(TRACELIGHT_CACHE_MAX_VALUE));
+		probe->Set(traceLights[0], traceLights[1], traceLights[2]);
 
 		if (developer >= 11)
+		{
 			Printf("Tracelight probe: %p | %p | %.2f %.2f %.2f | %d %d %d | %f %f %f\n", subsector->traceLightCache, probe, traceLights[0], traceLights[1], traceLights[2], probe->r, probe->g, probe->b, out[0], out[1], out[2]);
+			probe->Get(traceLights[0], traceLights[1], traceLights[2]);
+			Printf("Resulting value: %.2f %.2f %.2f\n", traceLights[0], traceLights[1], traceLights[2]);
+		}
 	}
 }
 

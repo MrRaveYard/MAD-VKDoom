@@ -87,7 +87,9 @@ struct sun_trace_cache_t
 	bool SunResult = false;
 };
 
-#define TRACELIGHT_CACHE_MAX_VALUE ((1 << 10) - 1)
+#define TRACELIGHT_CACHE_MAX_VALUE_R ((1 << 10) - 1)
+#define TRACELIGHT_CACHE_MAX_VALUE_G ((1 << 10) - 1)
+#define TRACELIGHT_CACHE_MAX_VALUE_B ((1 << 10) - 1)
 
 class TraceLightVoxelCache
 {
@@ -100,7 +102,24 @@ public:
 		uint32_t isValid : 1;
 
 		inline Probe() : r(0), g(0), b(0), isValid(0) {}
+
+		inline void Set(float r, float g, float b)
+		{
+			isValid = true;
+			this->r = std::clamp(uint32_t(r * 256.0f), uint32_t(0), uint32_t(TRACELIGHT_CACHE_MAX_VALUE_R));
+			this->g = std::clamp(uint32_t(g * 256.0f), uint32_t(0), uint32_t(TRACELIGHT_CACHE_MAX_VALUE_G));
+			this->b = std::clamp(uint32_t(b * 256.0f), uint32_t(0), uint32_t(TRACELIGHT_CACHE_MAX_VALUE_B));
+		}
+
+		inline void Get(float& r, float& g, float& b)
+		{
+			r = float(this->r) / 256.0f;
+			g = float(this->g) / 256.0f;
+			b = float(this->b) / 256.0f;
+		}
 	};
+
+	static_assert(sizeof(Probe) == sizeof(uint32_t));
 
 private:
 	FVector3 min;
@@ -113,25 +132,28 @@ public:
 	inline TraceLightVoxelCache(const FVector3& min, const FVector3& max, unsigned gridSize)
 		: min(min), gridSize(gridSize), max(max)
 	{
-	recalculate:;
-		const uint64_t sizeX = std::max(uint64_t(1), uint64_t(ceilf((max.X - min.X) / gridSize)));
-		const uint64_t sizeY = std::max(uint64_t(1), uint64_t(ceilf((max.Y - min.Y) / gridSize)));
-		const uint64_t sizeZ = std::max(uint64_t(1), uint64_t(ceilf((max.Z - min.Z) / gridSize)));
-		
-		auto count = sizeX * sizeY * sizeZ;
+		uint64_t sizeX, sizeY, sizeZ, count;
 
-		if (count > 8192 * 4)
+		while (true)
 		{
-			this->gridSize *= 2;
-			gridSize *= 2;
-			goto recalculate;
+			sizeX = std::max(uint64_t(1), uint64_t(ceilf((max.X - min.X) / gridSize)));
+			sizeY = std::max(uint64_t(1), uint64_t(ceilf((max.Y - min.Y) / gridSize)));
+			sizeZ = std::max(uint64_t(1), uint64_t(ceilf((max.Z - min.Z) / gridSize)));
+
+			count = sizeX * sizeY * sizeZ;
+
+			if (count > 8192 * 4) // sanity limit
+			{
+				this->gridSize *= 2;
+				gridSize *= 2;
+				continue;
+			}
+			break;
 		}
 
 		indexMulY = sizeX;
 		indexMulZ = sizeX * sizeY;
-
-
-		entries.reset(new Probe[probeCount = std::max(1u, uint32_t(sizeX * sizeY * sizeZ))]());
+		entries.reset(new Probe[probeCount = std::max(1u, uint32_t(count))]());
 	}
 
 	inline size_t Size() const
@@ -151,9 +173,7 @@ public:
 		uint32_t y = static_cast<uint32_t>(off.Y / gridSize);
 		uint32_t z = static_cast<uint32_t>(off.Z / gridSize);
 
-		// data[Z][Y][X];
-
-		const auto index = (z * indexMulZ) + (y * indexMulY) + x;
+		const auto index = (z * indexMulZ) + (y * indexMulY) + x; // effective order is: [Z][Y][X];
 
 		return entries[index < probeCount ? index : 0u];
 	}
