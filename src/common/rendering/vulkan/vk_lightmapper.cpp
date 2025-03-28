@@ -27,9 +27,9 @@ CVAR(Int, lm_max_updates, 128, CVAR_NOSAVE);
 CVAR(Float, lm_scale, 1.0, CVAR_NOSAVE);
 CVAR(Bool, lm_sunlight, true, CVAR_ARCHIVE);
 CVAR(Bool, lm_blur, true, CVAR_ARCHIVE);
-CVAR(Bool, lm_ao, true, CVAR_ARCHIVE);
+CVAR(Bool, lm_ao, false, CVAR_ARCHIVE);
 CVAR(Bool, lm_softshadows, true, CVAR_ARCHIVE);
-CVAR(Bool, lm_bounce, true, CVAR_ARCHIVE);
+CVAR(Bool, lm_bounce, false, CVAR_ARCHIVE);
 CVAR(Bool, lm_dynamic, true, CVAR_ARCHIVE);
 CVAR(Bool, lm_dynlights, false, CVAR_ARCHIVE);
 
