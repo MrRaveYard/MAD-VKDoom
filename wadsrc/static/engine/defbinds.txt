@@ -5,6 +5,10 @@ s +back
 a +moveleft
 d +moveright
 space +jump
-x crouch
+ctrl +crouch
+c +crouch
 e +use
 mouse2 +altattack
+mouse4 +reload
+mouse5 +zoom
+shift +speed
