@@ -288,8 +288,12 @@ static void AddBuiltinFields(FString &layoutBlock, int &index, bool is_in, const
 	}
 }
 
+EXTERN_CVAR(Bool, vk_ubershader);
+
 void VkShaderManager::BuildLayoutBlock(FString &layoutBlock, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader, bool isUberShader)
 {
+	isUberShader = vk_ubershader;
+
 	bool hasClipDistance = fb->GetDevice()->EnabledFeatures.Features.shaderClipDistance;
 
 	layoutBlock << "// This must match the PushConstants struct\n";

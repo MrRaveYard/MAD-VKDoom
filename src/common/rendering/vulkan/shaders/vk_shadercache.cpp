@@ -26,9 +26,53 @@ VkShaderCache::~VkShaderCache()
 	Save();
 }
 
+unsigned shader_cacheSize = 0;
+unsigned shader_compilations = 0;
+unsigned shader_hits = 0;
+double shader_compilationTotalMilliseconds = 0.0;
+
+unsigned pipeline_hits = 0;
+unsigned pipeline_creations = 0;
+double pipeline_creationTotalMilliseconds = 0;
+
+ADD_STAT(shadercache)
+{
+	FString out;
+
+	out.Format(
+		"Shader cache\n"
+		"    entries: %u\n"
+		"    miss: %u\n"
+		"    hits: %u\n"
+		"    hit percentage: %.3f\n"
+		"    compilation total time:   %.3fms\n"
+		"    average compilation time: %.3fms\n"
+
+		"    pipelines created: %u\n"
+		//"    pipeline hits: %u\n"
+		//"    pipeline hit percentage: %.3f\n"
+		"    creation time: %.3fms\n"
+		"    average time:  %.3fms\n",
+		shader_cacheSize,
+		shader_compilations,
+		shader_hits,
+		double(shader_hits) / double(shader_hits + shader_compilations) * 100.0,
+		shader_compilationTotalMilliseconds,
+		shader_compilationTotalMilliseconds / shader_compilations,
+		pipeline_creations,
+		//pipeline_hits,
+		//double(pipeline_hits) / double(pipeline_hits + pipeline_creations) * 100.0,
+		pipeline_creationTotalMilliseconds,
+		pipeline_creationTotalMilliseconds / pipeline_creations);
+
+	return out;
+}
+
 std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<VkShaderSource>& sources, const std::function<FString(FString)>& includeFilter)
 {
 	// Is this something we already compiled before?
+
+	shader_cacheSize = CodeCache.size();
 
 	FString checksum = CalcSha1(type, sources);
 	auto it = CodeCache.find(checksum);
@@ -53,6 +97,7 @@ std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<V
 
 			if (!foundChanges)
 			{
+				++shader_hits;
 				cacheinfo.LastUsed = LaunchTime;
 				return cacheinfo.Code;
 			}
@@ -75,8 +120,14 @@ std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<V
 	compiler.OnIncludeSystem([&](std::string headerName, std::string includerName, size_t depth) { return OnInclude(cachedCompile, headerName.c_str(), includerName.c_str(), depth, true, includeFilter ? includeFilter : noFilter); });
 	for (const VkShaderSource& source : sources)
 		compiler.AddSource(source.Name, source.Code);
-	cachedCompile.Code = compiler.Compile(fb->GetDevice());
 	cachedCompile.LastUsed = LaunchTime;
+
+	auto startTime = std::chrono::steady_clock::now();
+	cachedCompile.Code = compiler.Compile(fb->GetDevice());
+	shader_compilationTotalMilliseconds += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startTime).count() / 1000.0;
+
+	++shader_compilations;
+	shader_cacheSize = CodeCache.size();
 
 	auto& c = CodeCache[checksum];
 	c = std::move(cachedCompile);

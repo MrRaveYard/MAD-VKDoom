@@ -274,11 +274,17 @@ VulkanRenderPass *VkRenderPassSetup::GetRenderPass(int clearTargets)
 	return RenderPasses[clearTargets].get();
 }
 
+extern unsigned pipeline_hits;
+extern unsigned pipeline_creations;
+extern double pipeline_creationTotalMilliseconds;
+int Printf(const char* format, ...);
+
 VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms)
 {
 	auto item = Pipelines.find(key);
 	if (item == Pipelines.end())
 	{
+		++pipeline_creations;
 		Uniforms.Clear();
 		auto pipeline = CreatePipeline(key, Uniforms);
 		auto ptr = pipeline.get();
@@ -287,6 +293,7 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 	}
 	else
 	{
+		++pipeline_hits;
 		Uniforms = item->second.Uniforms;
 		return item->second.pipeline.get();
 	}
@@ -294,6 +301,7 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 
 std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms)
 {
+	auto totalStartTime = std::chrono::steady_clock::now();
 	GraphicsPipelineBuilder builder;
 	builder.Cache(fb->GetRenderPassManager()->GetCache());
 
@@ -380,7 +388,23 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 
 	Uniforms = program->Uniforms;
 
-	return builder.Create(fb->GetDevice());
+	auto startTime = std::chrono::steady_clock::now();
+	auto r = builder.Create(fb->GetDevice());
+	pipeline_creationTotalMilliseconds += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startTime).count() / 1000.0;
+
+	Printf("Pipeline %p %08X %p %08X %08X %08X : %.3fms | total: %.3fms\n",
+		key.AsQWORD,
+		key.RenderStyle,
+		key.ShaderKey.AsQWORD,
+		key.ShaderKey.EffectState,
+		key.ShaderKey.SpecialEffect,
+		key.ShaderKey.VertexFormat,
+
+		std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - startTime).count() / 1000.0,
+		std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - totalStartTime).count() / 1000.0
+	);
+
+	return r;
 }
 
 /////////////////////////////////////////////////////////////////////////////

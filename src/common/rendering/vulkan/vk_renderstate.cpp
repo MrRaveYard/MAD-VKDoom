@@ -243,6 +243,8 @@ void VkRenderState::ApplyDepthBias()
 	}
 }
 
+CVAR(Bool, vk_ubershader, false, 0);
+
 void VkRenderState::ApplyRenderPass(int dt)
 {
 	// Find a pipeline that matches our state
@@ -362,8 +364,34 @@ void VkRenderState::ApplyRenderPass(int dt)
 
 	if (changingPipeline)
 	{
-		mCommandBuffer->bindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, mPassSetup->GetPipeline(pipelineKey, mUniforms));
 		mPipelineKey = pipelineKey;
+	
+		if (vk_ubershader)
+		{
+			VkShaderKey sk;
+			sk.AsQWORD = 0;
+
+			const auto& key = pipelineKey.ShaderKey;
+
+			sk.AlphaTest = key.AlphaTest;
+			sk.Simple = key.Simple;
+			sk.Simple3D = key.Simple3D;
+			sk.GBufferPass = key.GBufferPass;
+			sk.UseLevelMesh = key.UseLevelMesh;
+			sk.ShadeVertex = key.ShadeVertex;
+
+			sk.UseShadowmap = key.UseShadowmap;
+			sk.UseRaytrace = key.UseRaytrace;
+			sk.UseRaytracePrecise = key.UseRaytracePrecise;
+			sk.PreciseMidtextureTrace = key.PreciseMidtextureTrace;
+			sk.ShadowmapFilter = key.ShadowmapFilter;
+
+			sk.UseLevelMesh = key.UseLevelMesh;
+
+			pipelineKey.ShaderKey.AsQWORD = sk.AsQWORD; // ubershader time!
+		}
+
+		mCommandBuffer->bindPipeline(VK_PIPELINE_BIND_POINT_GRAPHICS, mPassSetup->GetPipeline(pipelineKey, mUniforms));
 	}
 }
 
@@ -477,7 +505,7 @@ void VkRenderState::ApplyPushConstants()
 	mPushConstants.uLightIndex = mLightIndex >= 0 ? (mLightIndex % MAX_LIGHT_DATA) : -1;
 	mPushConstants.uBoneIndexBase = mBoneIndexBase;
 	mPushConstants.uFogballIndex = mFogballIndex >= 0 ? (mFogballIndex % MAX_FOGBALL_DATA) : -1;
-
+	mPushConstants.shaderKey = mPipelineKey.ShaderKey.AsQWORD;
 	
 	if(mUniforms.sz > 0)
 	{
