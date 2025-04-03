@@ -274,13 +274,96 @@ VulkanRenderPass *VkRenderPassSetup::GetRenderPass(int clearTargets)
 	return RenderPasses[clearTargets].get();
 }
 
+int Printf(const char* fmt, ...);
+
+void VkRenderPassSetup::MergeCompleted()
+{
+	decltype(finishedPipes) localPipes;
+
+	{
+		std::lock_guard guard(flushing);
+		localPipes = std::move(finishedPipes);
+	}
+
+	for (auto& e : localPipes)
+	{
+		SpecializedPipelines.insert(std::move(e));
+	}
+
+	if (misses > 0)
+	{
+		Printf("Ubershader compilations %d\n", int(misses));
+		misses = 0;
+	}
+
+	if (localPipes.size())
+	{
+		Printf("Added %d specialized pipelines\n", int(localPipes.size()));
+	}
+}
+
+CVAR(Bool, gl_specialized_shaders, false, 0)
+CVAR(Bool, vk_pipeline_async_creation, false, 0)
+
 VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms)
 {
 	// To do:
 	// Build the generalized pipelines in the VkRenderPassSetup constructor
 	// Then build the specialized ones on a worker thread
 
-#if 0 // generalized lookup
+	if (gl_specialized_shaders)
+	{
+
+		auto item = SpecializedPipelines.find(key);
+		if (item == SpecializedPipelines.end())
+		{
+			static std::atomic<int> threadCount = { 0 };
+
+			//bool expected = false;
+			//if (hasJob.compare_exchange_strong(expected, true))
+			
+
+			if (vk_pipeline_async_creation)
+			{
+				if (threadCount < 4)
+				{
+					Uniforms.Clear();
+					++threadCount;
+					std::thread thread = std::thread([&](const VkPipelineKey key)
+						{
+							auto pipeline = CreatePipeline(key, false, Uniforms);
+							auto ptr = pipeline.get();
+
+							{
+								std::lock_guard guard(flushing);
+								finishedPipes.push_back(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{ std::move(pipeline), Uniforms }});
+							}
+							hasJob = false;
+							--threadCount;
+						}
+					, key);
+					thread.detach();
+				}
+			}
+			else
+			{
+				auto pipeline = CreatePipeline(key, false, Uniforms);
+				auto ptr = pipeline.get();
+				SpecializedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{ std::move(pipeline), Uniforms }});
+				return ptr;
+			}
+		}
+		else
+		{
+			Uniforms = item->second.Uniforms;
+			return item->second.pipeline.get();
+		}
+	}
+
+#if 1 // generalized lookup
+
+	{
+
 	VkPipelineKey gkey = key;
 	gkey.ShaderKey.AsQWORD = 0;
 
@@ -290,27 +373,17 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 		auto pipeline = CreatePipeline(gkey, true, Uniforms);
 		auto ptr = pipeline.get();
 		GeneralizedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{gkey, PipelineData{ std::move(pipeline), Uniforms }});
+		++misses;
 		return ptr;
 	}
 	else
 	{
 		Uniforms = item->second.Uniforms;
 		return item->second.pipeline.get();
+	}
 	}
 #else // specialized lookup
-	auto item = SpecializedPipelines.find(key);
-	if (item == SpecializedPipelines.end())
-	{
-		auto pipeline = CreatePipeline(key, false, Uniforms);
-		auto ptr = pipeline.get();
-		SpecializedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{std::move(pipeline), Uniforms}});
-		return ptr;
-	}
-	else
-	{
-		Uniforms = item->second.Uniforms;
-		return item->second.pipeline.get();
-	}
+	
 #endif
 }
 

@@ -68,6 +68,8 @@ private:
 	FString CacheFilename;
 	uint64_t LaunchTime = 0;
 
+	std::mutex mt;
+
 	VulkanRenderDevice* fb = nullptr;
 
 	std::map<FString, VkCachedShaderLump> PublicFiles;
@@ -100,7 +102,6 @@ public:
 	}
 
 	std::vector<uint32_t> Compile(VulkanRenderDevice* fb);
-
 private:
 	ShaderType shaderType = {};
 	TArray<VkShaderSource> sources;

@@ -28,6 +28,8 @@ VkShaderCache::~VkShaderCache()
 
 std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<VkShaderSource>& sources, const std::function<FString(FString)>& includeFilter)
 {
+	std::lock_guard guard(mt);
+
 	// Is this something we already compiled before?
 
 	FString checksum = CalcSha1(type, sources);

@@ -59,6 +59,7 @@
 		#ifdef SHADE_VERTEX
 			dynlight.rgb += vLightColor;
 		#else
+#ifndef FAST_SHADER
 			if (uLightIndex >= 0)
 			{
 				ivec4 lightRange = getLightRange();
@@ -78,7 +79,8 @@
 					}
 				}
 			}
-		#endif
+#endif
+#endif
 		
 		vec3 frag;
 		
@@ -97,6 +99,7 @@
 		}
 
 		#ifndef SHADE_VERTEX
+#ifndef FAST_SHADER
 			if (uLightIndex >= 0)
 			{
 				ivec4 lightRange = getLightRange();
@@ -113,6 +116,7 @@
 					frag = clamp(frag + desaturate(addlight).rgb, 0.0, 1.0);
 				}
 			}
+#endif
 		#endif
 
 		return frag;

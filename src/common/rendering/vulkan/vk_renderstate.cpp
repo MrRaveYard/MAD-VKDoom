@@ -785,6 +785,11 @@ void VkRenderState::BeginFrame()
 
 void VkRenderState::EndRenderPass()
 {
+	if (mPassSetup)
+	{
+		mPassSetup->MergeCompleted();
+	}
+
 	if (mCommandBuffer)
 	{
 		mCommandBuffer->endRenderPass();

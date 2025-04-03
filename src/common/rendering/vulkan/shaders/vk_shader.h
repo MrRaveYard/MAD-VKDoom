@@ -11,6 +11,8 @@
 #include "hw_dynlightdata.h"
 #include "hwrenderer/postprocessing/hw_useruniforms.h"
 
+#include <mutex>
+
 class ShaderIncludeResult;
 class VulkanRenderDevice;
 class VulkanDevice;
@@ -173,6 +175,7 @@ public:
 	VulkanShader* GetZMinMaxFragmentShader(int index) { return ZMinMax.frag[index].get(); }
 	VulkanShader* GetLightTilesShader() { return LightTiles.get(); }
 
+	std::mutex mt;
 private:
 	std::unique_ptr<VulkanShader> LoadVertShader(FString shadername, const char *vert_lump, const char *vert_lump_custom, const char *defines, const VkShaderKey& key, const UserShaderDesc *shader, bool isUberShader);
 	std::unique_ptr<VulkanShader> LoadFragShader(FString shadername, const char *frag_lump, const char *material_lump, const char* mateffect_lump, const char *light_lump_shared, const char *lightmodel_lump, const char *defines, const VkShaderKey& key, const UserShaderDesc *shader, bool isUberShader);
@@ -182,11 +185,11 @@ private:
 	FString LoadPrivateShaderLump(const char *lumpname);
 
 	void BuildLayoutBlock(FString &definesBlock, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader, bool isUberShader);
-	void BuildDefinesBlock(FString &definesBlock, const char *defines, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader);
+	void BuildDefinesBlock(FString &definesBlock, const char *defines, bool isFrag, const VkShaderKey& key, const UserShaderDesc *shader, bool isUberShader);
 
 	VulkanRenderDevice* fb = nullptr;
 
-	std::map<uint32_t, VkShaderProgram> generic;
+	std::map<uint64_t, VkShaderProgram> generic;
 	std::map<VkShaderKey, VkShaderProgram> specialized;
 
 	std::list<VkPPShader*> PPShaders;

@@ -84,6 +84,8 @@ public:
 	VulkanRenderPass *GetRenderPass(int clearTargets);
 	VulkanPipeline *GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms);
 
+	void MergeCompleted();
+
 	VkRenderPassKey PassKey;
 	std::unique_ptr<VulkanRenderPass> RenderPasses[8];
 	std::map<VkPipelineKey, PipelineData> GeneralizedPipelines;
@@ -94,6 +96,13 @@ private:
 	std::unique_ptr<VulkanPipeline> CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms);
 
 	VulkanRenderDevice* fb = nullptr;
+
+	std::vector < std::pair<VkPipelineKey, PipelineData> > finishedPipes;
+	std::thread thread;
+	std::atomic<bool> hasJob = {false};
+	int misses = 0;
+	std::mutex flushing;
+
 };
 
 class VkVertexFormat
