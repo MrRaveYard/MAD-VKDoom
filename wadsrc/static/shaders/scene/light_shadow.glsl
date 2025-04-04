@@ -137,6 +137,9 @@ float shadowAttenuationShadowMap(vec3 lightpos, int shadowIndex, float softShado
 
 float shadowAttenuation(vec3 lightpos, int shadowIndex, float softShadowRadius, int flags)
 {
+#ifdef DISABLE_SHADOWS
+	return 1.0;
+#else
 	if(USE_RAYTRACE || (flags & LIGHTINFO_TRACE) > 0)
 	{
 		return shadowAttenuationRaytrace(lightpos, shadowIndex, softShadowRadius, flags);
@@ -149,4 +152,5 @@ float shadowAttenuation(vec3 lightpos, int shadowIndex, float softShadowRadius, 
 	{
 		return 1.0;
 	}
+#endif
 }
