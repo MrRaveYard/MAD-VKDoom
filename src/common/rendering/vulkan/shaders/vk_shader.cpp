@@ -94,7 +94,7 @@ void VkShaderManager::Deinit()
 VkShaderProgram* VkShaderManager::Get(const VkShaderKey& key, bool isUberShader)
 {
 	std::lock_guard guard(mt);
-	VkShaderProgram& program = isUberShader ? generic[uint64_t(key.Layout.AsDWORD) | (uint64_t(key.EffectState) << 32)] : specialized[key];
+	VkShaderProgram& program = isUberShader ? generic[key.GeneralizedShaderKey()] : specialized[key];
 
 	if (program.frag)
 		return &program;
@@ -390,12 +390,9 @@ void VkShaderManager::BuildDefinesBlock(FString &definesBlock, const char *defin
 
 	definesBlock << LoadPrivateShaderLump("shaders/shaderkey.glsl").GetChars() << "\n";
 
-	// What is this define about? Why is it needed?
-	definesBlock << "#define UBERSHADERS\n";
-
 	if (isUberShader)
 	{
-		definesBlock << "#define FAST_SHADER\n";
+		definesBlock << "#define DISABLE_SHADOWS\n";
 	}
 
 	// Controls layout and has to be defines:

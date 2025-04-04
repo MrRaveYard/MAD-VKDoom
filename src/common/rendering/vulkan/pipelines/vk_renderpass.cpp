@@ -302,8 +302,8 @@ void VkRenderPassSetup::MergeCompleted()
 	}
 }
 
-CVAR(Bool, gl_specialized_shaders, false, 0)
-CVAR(Bool, vk_pipeline_async_creation, false, 0)
+CVAR(Bool, gl_ubershaders, false, 0)
+CVAR(Bool, vk_pipeline_async_creation, true, 0)
 
 VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms)
 {
@@ -311,9 +311,8 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 	// Build the generalized pipelines in the VkRenderPassSetup constructor
 	// Then build the specialized ones on a worker thread
 
-	if (gl_specialized_shaders)
+	if(!gl_ubershaders)
 	{
-
 		auto item = SpecializedPipelines.find(key);
 		if (item == SpecializedPipelines.end())
 		{
@@ -334,9 +333,14 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 							auto pipeline = CreatePipeline(key, false, Uniforms);
 							auto ptr = pipeline.get();
 
+							try
 							{
 								std::lock_guard guard(flushing);
 								finishedPipes.push_back(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{ std::move(pipeline), Uniforms }});
+							}
+							catch(CVulkanError error)
+							{
+								// error :(
 							}
 							hasJob = false;
 							--threadCount;
@@ -360,31 +364,41 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 		}
 	}
 
-#if 1 // generalized lookup
-
 	{
+		VkPipelineKey gkey = key;
+		gkey.ShaderKey.AsQWORD = 0;
 
-	VkPipelineKey gkey = key;
-	gkey.ShaderKey.AsQWORD = 0;
+		auto item = GeneralizedPipelines.find(gkey);
+		if (item == GeneralizedPipelines.end())
+		{
+			auto pipeline = CreatePipeline(gkey, true, Uniforms);
+			auto ptr = pipeline.get();
+			GeneralizedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{gkey, PipelineData{ std::move(pipeline), Uniforms }});
+			++misses;
+			return ptr;
+		}
+		else
+		{
+			Uniforms = item->second.Uniforms;
+			return item->second.pipeline.get();
+		}
+	}
+}
 
-	auto item = GeneralizedPipelines.find(gkey);
-	if (item == GeneralizedPipelines.end())
-	{
-		auto pipeline = CreatePipeline(gkey, true, Uniforms);
-		auto ptr = pipeline.get();
-		GeneralizedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{gkey, PipelineData{ std::move(pipeline), Uniforms }});
-		++misses;
-		return ptr;
-	}
-	else
-	{
-		Uniforms = item->second.Uniforms;
-		return item->second.pipeline.get();
-	}
-	}
-#else // specialized lookup
-	
-#endif
+// Pipeline creation tracking and printing
+int Printf(const char* fmt, ...);
+CVAR(Bool, vk_debug_pipeline_creation, false, 0);
+static double pipeline_time;
+static int pipeline_count;
+ADD_STAT(pipelines)
+{
+	FString out;
+	out.Format(
+		"Pipelines created: %d\n"
+		"Pipeline time: %.3f\n"
+		"Pipeline average: %.3f",
+		pipeline_count, pipeline_time, pipeline_time / pipeline_count);
+	return out;
 }
 
 std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms)
@@ -477,7 +491,22 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 
 	Uniforms = program->Uniforms;
 
-	return builder.Create(fb->GetDevice());
+	cycle_t ct;
+	ct.ResetAndClock();
+	
+	auto pipeline = builder.Create(fb->GetDevice());
+
+	ct.Unclock();
+	const auto duration = ct.TimeMS();
+	pipeline_time += duration;
+	++pipeline_count;
+
+	if (vk_debug_pipeline_creation)
+	{
+		Printf(">>> Pipeline created in %.3fms\n", duration);
+	}
+
+	return pipeline;
 }
 
 /////////////////////////////////////////////////////////////////////////////
