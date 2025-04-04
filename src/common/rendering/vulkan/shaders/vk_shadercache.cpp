@@ -26,6 +26,24 @@ VkShaderCache::~VkShaderCache()
 	Save();
 }
 
+unsigned shader_hits = 0;
+unsigned shader_compilations = 0;
+
+ADD_STAT(shadercache)
+{
+	FString out;
+	out.Format(
+		"Shader cache hits : %u\n"
+		"Shader cache miss : %u\n"
+		"Shader cache ratio: %.3f%%\n",
+		shader_hits,
+		shader_compilations,
+		double(shader_compilations) / double(shader_compilations + shader_hits)
+	);
+
+	return out;
+}
+
 std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<VkShaderSource>& sources, const std::function<FString(FString)>& includeFilter)
 {
 	std::lock_guard guard(mt);
@@ -56,6 +74,7 @@ std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<V
 			if (!foundChanges)
 			{
 				cacheinfo.LastUsed = LaunchTime;
+				++shader_hits;
 				return cacheinfo.Code;
 			}
 		}
@@ -79,6 +98,8 @@ std::vector<uint32_t> VkShaderCache::Compile(ShaderType type, const TArrayView<V
 		compiler.AddSource(source.Name, source.Code);
 	cachedCompile.Code = compiler.Compile(fb->GetDevice());
 	cachedCompile.LastUsed = LaunchTime;
+
+	++shader_compilations;
 
 	auto& c = CodeCache[checksum];
 	c = std::move(cachedCompile);
