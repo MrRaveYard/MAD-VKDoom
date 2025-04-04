@@ -153,6 +153,83 @@ public:
 
 static_assert(sizeof(VkShaderKey) == 24, "sizeof(VkShaderKey) is not its expected size!"); // If this assert fails, the flags union no longer adds up to 64 bits. Or there are gaps in the class so the memcmp doesn't work.
 
+class VkGenericShaderKeyRange
+{
+	VkShaderKey key;
+	int shaderNum;
+	
+	int maxShaderNum;
+	int maxSpecialEffects;
+	int maxEffectStates;
+	int maxVertexFormats;
+
+	template<typename T> static bool IncrementWrapTestOverflow(T& value, T m)
+	{
+		if (++value >= m)
+		{
+			value = 0;
+			return true;
+		}
+		return false;
+	}
+
+public:
+	constexpr inline VkGenericShaderKeyRange(int maxSpecialEffects, int maxEffectStates, int maxVertexFormats)
+		: shaderNum(0), maxShaderNum(maxSpecialEffects + maxEffectStates), maxSpecialEffects(maxSpecialEffects), maxEffectStates(maxEffectStates), maxVertexFormats(maxVertexFormats)
+	{
+	}
+
+	inline const VkShaderKey Key() const { return key; }
+
+	inline constexpr const VkGenericShaderKeyRange begin() const
+	{
+		VkGenericShaderKeyRange range(*this);
+		range.key = VkShaderKey();
+		range.shaderNum = 0;
+		return range;
+	}
+
+	inline constexpr const VkGenericShaderKeyRange end() const
+	{
+		VkGenericShaderKeyRange range(maxSpecialEffects, maxEffectStates, maxVertexFormats);
+		range.key.VertexFormat = maxVertexFormats;
+		return range;
+	}
+
+	inline bool operator!=(const VkGenericShaderKeyRange& other) const { return this->key != other.key; }
+	inline constexpr const VkGenericShaderKeyRange& operator*() const { return *this; }
+	inline VkGenericShaderKeyRange& operator++()
+	{
+		if (IncrementWrapTestOverflow(key.Layout.AsDWORD, uint32_t(1 << 7))) // magic num
+		{
+			if (IncrementWrapTestOverflow(shaderNum, maxShaderNum))
+			{
+				if (IncrementWrapTestOverflow(key.VertexFormat, maxVertexFormats))
+				{
+					*this = end();
+					return *this;
+				}
+			}
+
+			key.SpecialEffect = shaderNum >= maxSpecialEffects ? EFF_NONE : shaderNum;
+			key.EffectState = shaderNum >= maxSpecialEffects ? shaderNum - maxSpecialEffects : 0;
+		}
+
+		// Filter out impossible and improbable combinations
+
+		if (key.Layout.Simple) // && (key.SpecialEffect <= EFF_NONE || key.SpecialEffect == EFF_BURN || key.SpecialEffect == EFF_STENCIL || key.SpecialEffect == EFF_PORTAL))
+		{
+			return operator++();
+		}
+		else if (key.Layout.Simple3D)
+		{
+			return operator++();
+		}
+
+		return *this;
+	}
+};
+
 class VkShaderProgram
 {
 public:
@@ -171,6 +248,8 @@ public:
 	void Deinit();
 
 	VkShaderProgram* Get(const VkShaderKey& key, bool isUberShader);
+
+	VkGenericShaderKeyRange GetGenericShaderKeyRange() const; // Iterator over generic (ubershaders)
 
 	bool CompileNextShader() { return true; }
 

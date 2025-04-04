@@ -128,6 +128,7 @@ public:
 	VkRenderPassSetup *GetRenderPass(const VkRenderPassKey &key);
 	int GetVertexFormat(const std::vector<size_t>& bufferStrides, const std::vector<FVertexBufferAttribute>& attrs);
 	VkVertexFormat *GetVertexFormat(int index);
+	int GetVertexFormatCount() const;
 	VulkanPipelineLayout* GetPipelineLayout(bool levelmesh, int UserUniformSize);
 
 	VkPPRenderPassSetup* GetPPRenderPass(const VkPPRenderPassKey& key);

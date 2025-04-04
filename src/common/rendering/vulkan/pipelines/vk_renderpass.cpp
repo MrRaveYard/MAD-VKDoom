@@ -131,6 +131,11 @@ VkVertexFormat *VkRenderPassManager::GetVertexFormat(int index)
 	return &VertexFormats[index];
 }
 
+int VkRenderPassManager::GetVertexFormatCount() const
+{
+	return int(VertexFormats.size());
+}
+
 VulkanPipelineLayout* VkRenderPassManager::GetPipelineLayout(bool levelmesh, int UserUniformSize)
 {
 	auto &layout = PipelineLayouts[levelmesh][UserUniformSize];
@@ -211,8 +216,73 @@ void VkRenderPassManager::CreateZMinMaxPipeline()
 
 /////////////////////////////////////////////////////////////////////////////
 
+int Printf(const char* fmt, ...); // TODO remove
+
 VkRenderPassSetup::VkRenderPassSetup(VulkanRenderDevice* fb, const VkRenderPassKey &key) : PassKey(key), fb(fb)
 {
+	Printf("Hello! I am your VkRenderPassSetup constructor! Nice to meet ya!\n");
+	size_t count = 0;
+
+	auto end = fb->GetShaderManager()->GetGenericShaderKeyRange().end();
+
+	auto dumpInfo = [&](VkShaderKey key) {
+
+		Printf("--------------------\n");
+		Printf(
+			"AlphaTest    : %u\n"
+			"Simple       : %u\n"
+			"Simple3D     : %u\n"
+			"GBufferPass  : %u\n"
+			"UseLevelMesh : %u\n"
+			"ShadeVertex  : %u\n"
+			"Unused       : %u\n",
+
+			key.Layout.AlphaTest,
+			key.Layout.Simple,
+			key.Layout.Simple3D,
+			key.Layout.GBufferPass,
+			key.Layout.UseLevelMesh,
+			key.Layout.ShadeVertex,
+			key.Layout.Unused
+		);
+		Printf(
+			"SpecialEffect : %d\n"
+			"EffectState   : %u\n"
+			"VertexFormat  : %u\n",
+			key.SpecialEffect,
+			key.EffectState,
+			key.VertexFormat
+		);
+	};
+
+	//dumpInfo(end.Key());
+
+	for (const auto& shader: fb->GetShaderManager()->GetGenericShaderKeyRange())
+	{
+		++count;
+
+		auto key = shader.Key();
+
+		
+		// Printf("Ubershader %08X %d %d %d count: %llu\n", key.Layout.AsDWORD, key.SpecialEffect, key.EffectState, key.VertexFormat, count);
+		
+		try
+		{
+			//dumpInfo(key);
+			fb->GetShaderManager()->Get(shader.Key(), true);
+		}
+		catch (CVulkanError error)
+		{
+			//dumpInfo(key);
+			Printf("Vulkan Error: %s\n", error.GetMessage(), key.Layout.AsDWORD, key.SpecialEffect, key.EffectState, key.VertexFormat, count);
+		}
+	}
+	Printf("Ubershader count: %llu\n", count);
+
+
+	// Pipelines
+	VkPipelineKey pipelineKey;
+	pipelineKey.DrawLine; // always 0
 }
 
 std::unique_ptr<VulkanRenderPass> VkRenderPassSetup::CreateRenderPass(int clearTargets)

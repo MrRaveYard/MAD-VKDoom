@@ -189,6 +189,11 @@ VkShaderProgram* VkShaderManager::Get(const VkShaderKey& key, bool isUberShader)
 	return &program;
 }
 
+VkGenericShaderKeyRange VkShaderManager::GetGenericShaderKeyRange() const
+{
+	return VkGenericShaderKeyRange(MAX_EFFECTS, NUM_BUILTIN_SHADERS, fb->GetRenderPassManager()->GetVertexFormatCount());
+}
+
 enum class FieldCondition
 {
 	ALWAYS,
