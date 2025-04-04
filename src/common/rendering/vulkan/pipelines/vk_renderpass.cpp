@@ -278,27 +278,36 @@ int Printf(const char* fmt, ...);
 
 void VkRenderPassSetup::MergeCompleted()
 {
-	decltype(finishedPipes) localPipes;
-
+	bool expected = true;
+	if (hasJob.compare_exchange_strong(expected, false))
 	{
-		std::lock_guard guard(flushing);
-		localPipes = std::move(finishedPipes);
-	}
+		decltype(finishedPipes) localPipes;
 
-	for (auto& e : localPipes)
-	{
-		SpecializedPipelines.insert(std::move(e));
-	}
+		{
+			std::lock_guard guard(flushing);
+			localPipes = std::move(finishedPipes);
+		}
 
-	if (misses > 0)
-	{
-		Printf("Ubershader compilations %d\n", int(misses));
-		misses = 0;
-	}
+		for (auto& e : localPipes)
+		{
+			SpecializedPipelines.insert(std::move(e));
+		}
 
-	if (localPipes.size())
-	{
-		Printf("Added %d specialized pipelines\n", int(localPipes.size()));
+		if (misses > 0)
+		{
+			Printf("Ubershader compilations %d\n", int(misses));
+			misses = 0;
+		}
+
+		if (localPipes.size())
+		{
+			Printf("Added %d specialized pipelines\n", int(localPipes.size()));
+		}
+
+		if (this->failed)
+		{
+			throw CVulkanError(this->error.c_str());
+		}
 	}
 }
 
@@ -330,19 +339,20 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 					++threadCount;
 					std::thread thread = std::thread([&](const VkPipelineKey key)
 						{
-							auto pipeline = CreatePipeline(key, false, Uniforms);
-							auto ptr = pipeline.get();
+							UniformStructHolder uniforms;
+							auto pipeline = CreatePipeline(key, false, uniforms);
 
 							try
 							{
 								std::lock_guard guard(flushing);
-								finishedPipes.push_back(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{ std::move(pipeline), Uniforms }});
+								finishedPipes.push_back(std::pair<VkPipelineKey, PipelineData>{key, PipelineData{ std::move(pipeline), uniforms }});
 							}
-							catch(CVulkanError error)
+							catch(CVulkanError er)
 							{
-								// error :(
+								error = er.GetMessage();
+								failed = true;
 							}
-							hasJob = false;
+							hasJob = true;
 							--threadCount;
 						}
 					, key);
@@ -503,6 +513,8 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 
 	if (vk_debug_pipeline_creation)
 	{
+		static std::mutex mutex;
+		std::lock_guard guard(mutex);
 		Printf(">>> Pipeline created in %.3fms\n", duration);
 	}
 

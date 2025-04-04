@@ -104,7 +104,7 @@ vec3 ProcessMaterialLight(Material material, vec3 ambientLight)
 
 	vec3 Lo = uDynLightColor.rgb;
 
-#ifndef FAST_SHADER
+#ifndef DISABLE_LIGHTS
 	if (uLightIndex >= 0)
 	{
 		ivec4 lightRange = getLightRange();

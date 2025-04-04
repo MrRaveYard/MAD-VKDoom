@@ -99,7 +99,9 @@ private:
 
 	std::vector < std::pair<VkPipelineKey, PipelineData> > finishedPipes;
 	std::thread thread;
-	std::atomic<bool> hasJob = {false};
+	std::atomic<bool> hasJob = { false };
+	std::atomic<bool> failed = { false };
+	std::string error;
 	int misses = 0;
 	std::mutex flushing;
 

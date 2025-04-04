@@ -393,6 +393,7 @@ void VkShaderManager::BuildDefinesBlock(FString &definesBlock, const char *defin
 	if (isUberShader)
 	{
 		definesBlock << "#define DISABLE_SHADOWS\n";
+		definesBlock << "#define DISABLE_LIGHTS\n";
 	}
 
 	// Controls layout and has to be defines:

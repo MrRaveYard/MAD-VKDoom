@@ -59,7 +59,7 @@
 		#ifdef SHADE_VERTEX
 			dynlight.rgb += vLightColor;
 		#else
-#ifndef FAST_SHADER
+#ifndef DISABLE_LIGHTS
 			if (uLightIndex >= 0)
 			{
 				ivec4 lightRange = getLightRange();
@@ -99,7 +99,7 @@
 		}
 
 		#ifndef SHADE_VERTEX
-#ifndef FAST_SHADER
+#ifndef DISABLE_LIGHTS
 			if (uLightIndex >= 0)
 			{
 				ivec4 lightRange = getLightRange();
