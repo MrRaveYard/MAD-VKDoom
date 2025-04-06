@@ -220,6 +220,7 @@ int Printf(const char* fmt, ...); // TODO remove
 
 VkRenderPassSetup::VkRenderPassSetup(VulkanRenderDevice* fb, const VkRenderPassKey &key) : PassKey(key), fb(fb)
 {
+	return;
 	Printf("Hello! I am your VkRenderPassSetup constructor! Nice to meet ya!\n");
 	size_t count = 0;
 
