@@ -347,6 +347,8 @@ VulkanRenderPass *VkRenderPassSetup::GetRenderPass(int clearTargets)
 
 int Printf(const char* fmt, ...);
 
+EXTERN_CVAR(Bool, vk_debug_pipeline_creation);
+
 void VkRenderPassSetup::MergeCompleted()
 {
 	bool expected = true;
@@ -364,13 +366,13 @@ void VkRenderPassSetup::MergeCompleted()
 			SpecializedPipelines.insert(std::move(e));
 		}
 
-		if (misses > 0)
+		if (misses > 0 && vk_debug_pipeline_creation)
 		{
 			Printf("Ubershader compilations %d\n", int(misses));
 			misses = 0;
 		}
 
-		if (localPipes.size())
+		if (localPipes.size() && vk_debug_pipeline_creation)
 		{
 			Printf("Added %d specialized pipelines\n", int(localPipes.size()));
 		}
