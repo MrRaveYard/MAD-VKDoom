@@ -452,7 +452,7 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 		auto item = GeneralizedPipelines.find(gkey);
 		if (item == GeneralizedPipelines.end())
 		{
-			auto pipeline = CreatePipeline(gkey, true, Uniforms);
+			auto pipeline = LinkPipeline(gkey, true, Uniforms);
 			auto ptr = pipeline.get();
 			GeneralizedPipelines.insert(std::pair<VkPipelineKey, PipelineData>{gkey, PipelineData{ std::move(pipeline), Uniforms }});
 			++misses;
@@ -482,27 +482,209 @@ ADD_STAT(pipelines)
 	return out;
 }
 
-std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms)
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreateWithStats(GraphicsPipelineBuilder& builder)
 {
+	cycle_t ct;
+	ct.ResetAndClock();
+
+	auto pipeline = builder.Create(fb->GetDevice());
+
+	ct.Unclock();
+	const auto duration = ct.TimeMS();
+	pipeline_time += duration;
+	++pipeline_count;
+
+	if (vk_debug_pipeline_creation)
+	{
+		Printf(">>> Pipeline created in %.3fms\n", duration);
+	}
+	return pipeline;
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipelineKey& key, bool isUberShader, UniformStructHolder& Uniforms)
+{
+	VkShaderProgram* program = fb->GetShaderManager()->Get(key.ShaderKey, isUberShader);
+
 	Uniforms.Clear();
+	Uniforms = program->Uniforms;
 
 	GraphicsPipelineBuilder builder;
 	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.Layout(fb->GetRenderPassManager()->GetPipelineLayout(key.ShaderKey.Layout.UseLevelMesh, program->Uniforms.sz));
+	builder.RenderPass(GetRenderPass(0));
+	builder.DebugName("VkRenderPassSetup.Pipeline");
 
-	builder.PolygonMode(key.DrawLine ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL);
+	AddVertexInputInterface(builder, key.ShaderKey.VertexFormat, key.DrawType);
+	AddPreRasterizationShaders(builder, key, program);
+	AddFragmentShader(builder, key, program);
+	AddFragmentOutputInterface(builder, key.RenderStyle, (VkColorComponentFlags)key.ColorMask);
+	AddDynamicState(builder);
 
-	VkShaderProgram *program = fb->GetShaderManager()->Get(key.ShaderKey, isUberShader);
-	builder.AddVertexShader(program->vert.get());
-	builder.AddConstant(0, (uint32_t)key.ShaderKey.AsQWORD);
-	builder.AddConstant(1, (uint32_t)(key.ShaderKey.AsQWORD >> 32));
-	if (program->frag)
+	return CreateWithStats(builder);
+}
+
+VulkanPipeline* VkRenderPassSetup::GetVertexInputLibrary(int vertexFormat, int drawType, bool useLevelMesh, int userUniformSize)
+{
+	uint64_t key =
+		(static_cast<uint64_t>(vertexFormat)) |
+		(static_cast<uint64_t>(drawType) << 16) |
+		(static_cast<uint64_t>(useLevelMesh) << 31) |
+		(static_cast<uint64_t>(userUniformSize) << 32);
+
+	auto& pipeline = Libraries.VertexInput[key];
+	if (!pipeline)
+		pipeline = CreateVertexInputLibrary(vertexFormat, drawType, useLevelMesh, userUniformSize);
+	return pipeline.get();
+}
+
+VulkanPipeline* VkRenderPassSetup::GetFragmentOutputLibrary(FRenderStyle renderStyle, VkColorComponentFlags colorMask)
+{
+	uint64_t key = static_cast<uint64_t>(renderStyle.AsDWORD) | (static_cast<uint64_t>(colorMask) << 32);
+	auto& pipeline = Libraries.FragmentOutput[key];
+	if (!pipeline)
+		pipeline = CreateFragmentOutputLibrary(renderStyle, colorMask);
+	return pipeline.get();
+}
+
+VulkanPipeline* VkRenderPassSetup::GetVertexShaderLibrary(const VkPipelineKey& key, bool isUberShader)
+{
+	VkPipelineKey vkey = key;
+	vkey.IsGeneralized = isUberShader;
+	vkey.DrawType = 0;
+	vkey.ColorMask = 0;
+	vkey.DepthWrite = 0;
+	vkey.DepthTest = 0;
+	vkey.DepthFunc = 0;
+	vkey.StencilTest = 0;
+	vkey.StencilPassOp = 0;
+	vkey.RenderStyle.AsDWORD = 0;
+	if (isUberShader)
 	{
-		builder.AddFragmentShader(program->frag.get());
-		builder.AddConstant(0, (uint32_t)key.ShaderKey.AsQWORD);
-		builder.AddConstant(1, (uint32_t)(key.ShaderKey.AsQWORD >> 32));
+		vkey.AsQWORD = 0;
 	}
+	else
+	{
+		vkey.ShaderKey.TextureMode = 0;
+		vkey.ShaderKey.ClampY = 0;
+		vkey.ShaderKey.Brightmap = 0;
+		vkey.ShaderKey.Detailmap = 0;
+		vkey.ShaderKey.Glowmap = 0;
+		vkey.ShaderKey.FogBeforeLights = 0;
+		vkey.ShaderKey.FogAfterLights = 0;
+		vkey.ShaderKey.FogRadial = 0;
+		vkey.ShaderKey.SWLightRadial = 0;
+		vkey.ShaderKey.SWLightBanded = 0;
+		vkey.ShaderKey.LightMode = 0;
+		vkey.ShaderKey.LightBlendMode = 0;
+		vkey.ShaderKey.LightAttenuationMode = 0;
+		vkey.ShaderKey.FogBalls = 0;
+		vkey.ShaderKey.NoFragmentShader = 0;
+		vkey.ShaderKey.DepthFadeThreshold = 0;
+		vkey.ShaderKey.AlphaTestOnly = 0;
+		vkey.ShaderKey.UseSpriteCenter = 0;
+	}
+	auto& pipeline = Libraries.VertexShader[vkey];
+	if (!pipeline)
+		pipeline = CreateVertexShaderLibrary(key, isUberShader);
+	return pipeline.get();
+}
 
-	const VkVertexFormat &vfmt = *fb->GetRenderPassManager()->GetVertexFormat(key.ShaderKey.VertexFormat);
+VulkanPipeline* VkRenderPassSetup::GetFragmentShaderLibrary(const VkPipelineKey& key, bool isUberShader)
+{
+	VkPipelineKey fkey = key;
+	fkey.IsGeneralized = isUberShader;
+	fkey.DrawLine = 0;
+	fkey.DrawType = 0;
+	fkey.CullMode = 0;
+	fkey.ColorMask = 0;
+	fkey.DepthClamp = 0;
+	fkey.DepthBias = 0;
+	fkey.RenderStyle.AsDWORD = 0;
+	fkey.ShaderKey.VertexFormat = 0;
+	if (isUberShader)
+		fkey.AsQWORD = 0;
+	auto& pipeline = Libraries.FragmentShader[fkey];
+	if (!pipeline)
+		pipeline = CreateFragmentShaderLibrary(key, isUberShader);
+	return pipeline.get();
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::LinkPipeline(const VkPipelineKey& key, bool isUberShader, UniformStructHolder& Uniforms)
+{
+	VkShaderProgram* program = fb->GetShaderManager()->Get(key.ShaderKey, isUberShader);
+
+	Uniforms.Clear();
+	Uniforms = program->Uniforms;
+
+	GraphicsPipelineBuilder builder;
+	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.AddLibrary(GetVertexInputLibrary(key.ShaderKey.VertexFormat, key.DrawType, key.ShaderKey.Layout.UseLevelMesh, program->Uniforms.sz));
+	builder.AddLibrary(GetVertexShaderLibrary(key, isUberShader));
+	builder.AddLibrary(GetFragmentShaderLibrary(key, isUberShader));
+	builder.AddLibrary(GetFragmentOutputLibrary(key.RenderStyle, (VkColorComponentFlags)key.ColorMask));
+	return CreateWithStats(builder);
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreateVertexInputLibrary(int vertexFormat, int drawType, bool useLevelMesh, int userUniformSize)
+{
+	GraphicsPipelineBuilder builder;
+	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.Flags(VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+	builder.LibraryFlags(VK_GRAPHICS_PIPELINE_LIBRARY_VERTEX_INPUT_INTERFACE_BIT_EXT);
+	builder.Layout(fb->GetRenderPassManager()->GetPipelineLayout(useLevelMesh, userUniformSize));
+	builder.RenderPass(GetRenderPass(0));
+	builder.DebugName("VkRenderPassSetup.VertexInputLibrary");
+	AddVertexInputInterface(builder, vertexFormat, drawType);
+	AddDynamicState(builder);
+	return CreateWithStats(builder);
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreateVertexShaderLibrary(const VkPipelineKey& key, bool isUberShader)
+{
+	VkShaderProgram* program = fb->GetShaderManager()->Get(key.ShaderKey, isUberShader);
+	GraphicsPipelineBuilder builder;
+	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.Flags(VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+	builder.LibraryFlags(VK_GRAPHICS_PIPELINE_LIBRARY_PRE_RASTERIZATION_SHADERS_BIT_EXT);
+	builder.Layout(fb->GetRenderPassManager()->GetPipelineLayout(key.ShaderKey.Layout.UseLevelMesh, program->Uniforms.sz));
+	builder.RenderPass(GetRenderPass(0));
+	builder.DebugName("VkRenderPassSetup.VertexShaderLibrary");
+	AddPreRasterizationShaders(builder, key, program);
+	AddDynamicState(builder);
+	return CreateWithStats(builder);
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreateFragmentShaderLibrary(const VkPipelineKey& key, bool isUberShader)
+{
+	VkShaderProgram* program = fb->GetShaderManager()->Get(key.ShaderKey, isUberShader);
+	GraphicsPipelineBuilder builder;
+	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.Flags(VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+	builder.LibraryFlags(VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_SHADER_BIT_EXT);
+	builder.Layout(fb->GetRenderPassManager()->GetPipelineLayout(key.ShaderKey.Layout.UseLevelMesh, program->Uniforms.sz));
+	builder.RenderPass(GetRenderPass(0));
+	builder.DebugName("VkRenderPassSetup.FragmentShaderLibrary");
+	AddFragmentShader(builder, key, program);
+	AddDynamicState(builder);
+	return CreateWithStats(builder);
+}
+
+std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreateFragmentOutputLibrary(FRenderStyle renderStyle, VkColorComponentFlags colorMask)
+{
+	GraphicsPipelineBuilder builder;
+	builder.Cache(fb->GetRenderPassManager()->GetCache());
+	builder.Flags(VK_PIPELINE_CREATE_LIBRARY_BIT_KHR);
+	builder.LibraryFlags(VK_GRAPHICS_PIPELINE_LIBRARY_FRAGMENT_OUTPUT_INTERFACE_BIT_EXT);
+	builder.RenderPass(GetRenderPass(0));
+	builder.DebugName("VkRenderPassSetup.FragmentOutputLibrary");
+	AddFragmentOutputInterface(builder, renderStyle, colorMask);
+	AddDynamicState(builder);
+	return CreateWithStats(builder);
+}
+
+void VkRenderPassSetup::AddVertexInputInterface(GraphicsPipelineBuilder& builder, int vertexFormat, int drawType)
+{
+	const VkVertexFormat& vfmt = *fb->GetRenderPassManager()->GetVertexFormat(vertexFormat);
 
 	for (int i = 0; i < vfmt.BufferStrides.size(); i++)
 		builder.AddVertexBufferBinding(i, vfmt.BufferStrides[i]);
@@ -520,18 +702,9 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 
 	for (size_t i = 0; i < vfmt.Attrs.size(); i++)
 	{
-		const auto &attr = vfmt.Attrs[i];
+		const auto& attr = vfmt.Attrs[i];
 		builder.AddVertexAttribute(attr.location, attr.binding, vkfmts[attr.format], attr.offset);
 	}
-
-	builder.AddDynamicState(VK_DYNAMIC_STATE_VIEWPORT);
-	builder.AddDynamicState(VK_DYNAMIC_STATE_SCISSOR);
-	builder.AddDynamicState(VK_DYNAMIC_STATE_DEPTH_BIAS);
-	builder.AddDynamicState(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
-
-	// Note: the actual values are ignored since we use dynamic viewport+scissor states
-	builder.Viewport(0.0f, 0.0f, 320.0f, 200.0f);
-	builder.Scissor(0, 0, 320, 200);
 
 	static const VkPrimitiveTopology vktopology[] = {
 		VK_PRIMITIVE_TOPOLOGY_POINT_LIST,
@@ -540,56 +713,60 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN,
 		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
 	};
+	builder.Topology(vktopology[drawType]);
+}
 
-	static const VkStencilOp op2vk[] = { VK_STENCIL_OP_KEEP, VK_STENCIL_OP_INCREMENT_AND_CLAMP, VK_STENCIL_OP_DECREMENT_AND_CLAMP };
-	static const VkCompareOp depthfunc2vk[] = { VK_COMPARE_OP_LESS, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_ALWAYS };
-
-	builder.Topology(vktopology[key.DrawType]);
-	builder.DepthStencilEnable(key.DepthTest, key.DepthWrite, key.StencilTest);
-	builder.DepthFunc(depthfunc2vk[key.DepthFunc]);
-	if (fb->GetDevice()->EnabledFeatures.Features.depthClamp)
-		builder.DepthClampEnable(key.DepthClamp);
-	builder.DepthBias(key.DepthBias, 0.0f, 0.0f, 0.0f);
+void VkRenderPassSetup::AddPreRasterizationShaders(GraphicsPipelineBuilder& builder, const VkPipelineKey& key, VkShaderProgram* program)
+{
+	builder.PolygonMode(key.DrawLine ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL);
+	builder.AddVertexShader(program->vert.get());
+	builder.AddConstant(0, (uint32_t)key.ShaderKey.AsQWORD);
+	builder.AddConstant(1, (uint32_t)(key.ShaderKey.AsQWORD >> 32));
 
 	// Note: CCW and CW is intentionally swapped here because the vulkan and opengl coordinate systems differ.
 	// main.vp addresses this by patching up gl_Position.z, which has the side effect of flipping the sign of the front face calculations.
 	builder.Cull(key.CullMode == Cull_None ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT, key.CullMode == Cull_CW ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE);
 
-	builder.Stencil(VK_STENCIL_OP_KEEP, op2vk[key.StencilPassOp], VK_STENCIL_OP_KEEP, VK_COMPARE_OP_EQUAL, 0xffffffff, 0xffffffff, 0);
+	if (fb->GetDevice()->EnabledFeatures.Features.depthClamp)
+		builder.DepthClampEnable(key.DepthClamp);
+	builder.DepthBias(key.DepthBias, 0.0f, 0.0f, 0.0f);
+}
 
+void VkRenderPassSetup::AddFragmentShader(GraphicsPipelineBuilder& builder, const VkPipelineKey& key, VkShaderProgram* program)
+{
+	if (program->frag)
+	{
+		builder.AddFragmentShader(program->frag.get());
+		builder.AddConstant(0, (uint32_t)key.ShaderKey.AsQWORD);
+		builder.AddConstant(1, (uint32_t)(key.ShaderKey.AsQWORD >> 32));
+	}
+
+	static const VkStencilOp op2vk[] = { VK_STENCIL_OP_KEEP, VK_STENCIL_OP_INCREMENT_AND_CLAMP, VK_STENCIL_OP_DECREMENT_AND_CLAMP };
+	static const VkCompareOp depthfunc2vk[] = { VK_COMPARE_OP_LESS, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_ALWAYS };
+
+	builder.DepthStencilEnable(key.DepthTest, key.DepthWrite, key.StencilTest);
+	builder.DepthFunc(depthfunc2vk[key.DepthFunc]);
+	builder.Stencil(VK_STENCIL_OP_KEEP, op2vk[key.StencilPassOp], VK_STENCIL_OP_KEEP, VK_COMPARE_OP_EQUAL, 0xffffffff, 0xffffffff, 0);
+}
+
+void VkRenderPassSetup::AddFragmentOutputInterface(GraphicsPipelineBuilder& builder, FRenderStyle renderStyle, VkColorComponentFlags colorMask)
+{
 	ColorBlendAttachmentBuilder blendbuilder;
-	blendbuilder.ColorWriteMask((VkColorComponentFlags)key.ColorMask);
-	BlendMode(blendbuilder, key.RenderStyle);
+	blendbuilder.ColorWriteMask(colorMask);
+	BlendMode(blendbuilder, renderStyle);
 
 	for (int i = 0; i < PassKey.DrawBuffers; i++)
 		builder.AddColorBlendAttachment(blendbuilder.Create());
 
 	builder.RasterizationSamples((VkSampleCountFlagBits)PassKey.Samples);
+}
 
-	builder.Layout(fb->GetRenderPassManager()->GetPipelineLayout(key.ShaderKey.Layout.UseLevelMesh, program->Uniforms.sz));
-	builder.RenderPass(GetRenderPass(0));
-	builder.DebugName("VkRenderPassSetup.Pipeline");
-
-	Uniforms = program->Uniforms;
-
-	cycle_t ct;
-	ct.ResetAndClock();
-	
-	auto pipeline = builder.Create(fb->GetDevice());
-
-	ct.Unclock();
-	const auto duration = ct.TimeMS();
-	pipeline_time += duration;
-	++pipeline_count;
-
-	if (vk_debug_pipeline_creation)
-	{
-		static std::mutex mutex;
-		std::lock_guard guard(mutex);
-		Printf(">>> Pipeline created in %.3fms\n", duration);
-	}
-
-	return pipeline;
+void VkRenderPassSetup::AddDynamicState(GraphicsPipelineBuilder& builder)
+{
+	builder.AddDynamicState(VK_DYNAMIC_STATE_VIEWPORT);
+	builder.AddDynamicState(VK_DYNAMIC_STATE_SCISSOR);
+	builder.AddDynamicState(VK_DYNAMIC_STATE_DEPTH_BIAS);
+	builder.AddDynamicState(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
 }
 
 /////////////////////////////////////////////////////////////////////////////

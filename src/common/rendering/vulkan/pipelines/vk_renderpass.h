@@ -16,6 +16,7 @@ class VkPPShader;
 class VkPPRenderPassKey;
 class VkPPRenderPassSetup;
 class ColorBlendAttachmentBuilder;
+class GraphicsPipelineBuilder;
 
 class VkPipelineKey
 {
@@ -35,7 +36,8 @@ public:
 			uint64_t StencilTest : 1;
 			uint64_t StencilPassOp : 2;
 			uint64_t DrawLine : 1;
-			uint64_t Unused : 45;
+			uint64_t IsGeneralized : 1;
+			uint64_t Unused : 44;
 		};
 		uint64_t AsQWORD = 0;
 	};
@@ -86,16 +88,43 @@ public:
 
 	void MergeCompleted();
 
+private:
+	std::unique_ptr<VulkanRenderPass> CreateRenderPass(int clearTargets);
+
+	std::unique_ptr<VulkanPipeline> CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms);
+	std::unique_ptr<VulkanPipeline> LinkPipeline(const VkPipelineKey& key, bool isUberShader, UniformStructHolder& Uniforms);
+	std::unique_ptr<VulkanPipeline> CreateWithStats(GraphicsPipelineBuilder& builder);
+
+	VulkanPipeline* GetVertexInputLibrary(int vertexFormat, int drawType, bool useLevelMesh, int userUniformSize);
+	VulkanPipeline* GetVertexShaderLibrary(const VkPipelineKey& key, bool isUberShader);
+	VulkanPipeline* GetFragmentShaderLibrary(const VkPipelineKey& key, bool isUberShader);
+	VulkanPipeline* GetFragmentOutputLibrary(FRenderStyle renderStyle, VkColorComponentFlags colorMask);
+
+	std::unique_ptr<VulkanPipeline> CreateVertexInputLibrary(int vertexFormat, int drawType, bool useLevelMesh, int userUniformSize);
+	std::unique_ptr<VulkanPipeline> CreateVertexShaderLibrary(const VkPipelineKey& key, bool isUberShader);
+	std::unique_ptr<VulkanPipeline> CreateFragmentShaderLibrary(const VkPipelineKey& key, bool isUberShader);
+	std::unique_ptr<VulkanPipeline> CreateFragmentOutputLibrary(FRenderStyle renderStyle, VkColorComponentFlags colorMask);
+
+	void AddVertexInputInterface(GraphicsPipelineBuilder& builder, int vertexFormat, int drawType);
+	void AddPreRasterizationShaders(GraphicsPipelineBuilder& builder, const VkPipelineKey& key, VkShaderProgram* program);
+	void AddFragmentShader(GraphicsPipelineBuilder& builder, const VkPipelineKey& key, VkShaderProgram* program);
+	void AddFragmentOutputInterface(GraphicsPipelineBuilder& builder, FRenderStyle renderStyle, VkColorComponentFlags colorMask);
+	void AddDynamicState(GraphicsPipelineBuilder& builder);
+
+	VulkanRenderDevice* fb = nullptr;
+
 	VkRenderPassKey PassKey;
 	std::unique_ptr<VulkanRenderPass> RenderPasses[8];
 	std::map<VkPipelineKey, PipelineData> GeneralizedPipelines;
 	std::map<VkPipelineKey, PipelineData> SpecializedPipelines;
 
-private:
-	std::unique_ptr<VulkanRenderPass> CreateRenderPass(int clearTargets);
-	std::unique_ptr<VulkanPipeline> CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms);
-
-	VulkanRenderDevice* fb = nullptr;
+	struct
+	{
+		std::map<uint64_t, std::unique_ptr<VulkanPipeline>> VertexInput;
+		std::map<VkPipelineKey, std::unique_ptr<VulkanPipeline>> VertexShader;
+		std::map<VkPipelineKey, std::unique_ptr<VulkanPipeline>> FragmentShader;
+		std::map<uint64_t, std::unique_ptr<VulkanPipeline>> FragmentOutput;
+	} Libraries;
 
 	std::vector < std::pair<VkPipelineKey, PipelineData> > finishedPipes;
 	std::thread thread;
@@ -104,7 +133,6 @@ private:
 	std::string error;
 	int misses = 0;
 	std::mutex flushing;
-
 };
 
 class VkVertexFormat
