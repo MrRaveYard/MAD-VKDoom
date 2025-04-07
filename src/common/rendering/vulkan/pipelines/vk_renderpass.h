@@ -93,7 +93,7 @@ private:
 
 	std::unique_ptr<VulkanPipeline> CreatePipeline(const VkPipelineKey &key, bool isUberShader, UniformStructHolder &Uniforms);
 	std::unique_ptr<VulkanPipeline> LinkPipeline(const VkPipelineKey& key, bool isUberShader, UniformStructHolder& Uniforms);
-	std::unique_ptr<VulkanPipeline> CreateWithStats(GraphicsPipelineBuilder& builder);
+	std::unique_ptr<VulkanPipeline> CreateWithStats(GraphicsPipelineBuilder& builder, const char* debugName);
 
 	VulkanPipeline* GetVertexInputLibrary(int vertexFormat, int drawType, bool useLevelMesh, int userUniformSize);
 	VulkanPipeline* GetVertexShaderLibrary(const VkPipelineKey& key, bool isUberShader);
@@ -133,6 +133,7 @@ private:
 	std::string error;
 	int misses = 0;
 	std::mutex flushing;
+	std::mutex shaderFetchVertex, shaderFetchFragment, shaderFetchVertex2, shaderFetchFragment2, linkMutex;
 };
 
 class VkVertexFormat
