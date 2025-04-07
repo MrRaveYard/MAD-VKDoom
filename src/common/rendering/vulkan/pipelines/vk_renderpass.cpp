@@ -409,6 +409,15 @@ inline const int GetMaxAsyncThreads()
 
 extern int gametic;
 
+VkRenderPassSetup::~VkRenderPassSetup()
+{
+	// wait
+	while (threadCount > 0)
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+	}
+}
+
 VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms)
 {
 	// To do:
@@ -420,7 +429,6 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key, Uniform
 		auto item = SpecializedPipelines.find(key);
 		if (item == SpecializedPipelines.end())
 		{
-			static std::atomic<int> threadCount = { 0 };
 
 			//bool expected = false;
 			//if (hasJob.compare_exchange_strong(expected, true))

@@ -82,6 +82,7 @@ class VkRenderPassSetup
 {
 public:
 	VkRenderPassSetup(VulkanRenderDevice* fb, const VkRenderPassKey &key);
+	~VkRenderPassSetup();
 
 	VulkanRenderPass *GetRenderPass(int clearTargets);
 	VulkanPipeline *GetPipeline(const VkPipelineKey &key, UniformStructHolder &Uniforms);
@@ -134,6 +135,7 @@ private:
 	int misses = 0;
 	std::mutex flushing;
 	std::mutex shaderFetchVertex, shaderFetchFragment, shaderFetchVertex2, shaderFetchFragment2, linkMutex;
+	std::atomic<int> threadCount = { 0 };
 };
 
 class VkVertexFormat
