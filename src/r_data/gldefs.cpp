@@ -1979,6 +1979,40 @@ class GLDefsParser
 						usershader.Varyings.push_back({varyingName, varyingProperty, parsedType});
 					}
 				}
+				else if (sc.Compare("raytrace"))
+				{
+					isProperty = true;
+					sc.MustGetString();
+					if (sc.Compare("cvar"))
+					{
+						sc.MustGetString();
+
+						FString cvarname = sc.String;
+						FBaseCVar* cvar = FindCVar(cvarname.GetChars(), NULL);
+
+						if (cvar)
+						{
+							const auto cvarType = cvar->GetRealType();
+
+							if (cvarType == CVAR_Bool || cvarType == CVAR_Int)
+							{
+								usershader.raytracingCVar = cvar;
+							}
+							else
+							{
+								sc.ScriptError("Specified cvar '%s' in raytrace specifier is not of 'int' or 'bool' type.", cvarname.GetChars());
+							}
+						}
+						else
+						{
+							sc.ScriptError("Cvar '%s' in raytrace specifier was not found.", cvarname.GetChars());
+						}
+					}
+					else
+					{
+						sc.ScriptError("Expected 'cvar' in raytrace specifier, got '%s' instead", sc.String);
+					}
+				}
 				else if (sc.Compare("texture"))
 				{
 					isProperty = true;
