@@ -250,6 +250,14 @@ void* FBaseCVar::GetExtraDataPointer2()
 	return m_ExtraDataPointer2;
 }
 
+void FBaseCVar::AttachCallback(std::function<void(FBaseCVar&)> callback)
+{
+	if (callback)
+	{
+		m_Callbacks.Push(std::move(callback));
+	}
+}
+
 const char *FBaseCVar::GetHumanString(int precision) const
 {
 	return GetGenericRep(CVAR_String).String;

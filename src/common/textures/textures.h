@@ -105,6 +105,8 @@ enum
 	SFlag_Global = 1,
 };
 
+class FBaseCVar;
+
 struct UserShaderDesc
 {
 	FString shader;
@@ -117,6 +119,9 @@ struct UserShaderDesc
 	std::vector<VaryingFieldDesc> Varyings;
 	UserUniforms Uniforms;
 	TMap<FString, FString> ActorFieldBindings;
+
+	// Shader overrides
+	bool forceEnableRaytracing = false;
 
 	void BindActorFields(void * act);
 };

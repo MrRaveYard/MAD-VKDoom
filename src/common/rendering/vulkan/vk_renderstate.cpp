@@ -344,6 +344,12 @@ void VkRenderState::ApplyRenderPass(int dt)
 	pipelineKey.ShaderKey.LightBlendMode = (level.info ? static_cast<int>(level.info->lightblendmode) : 0);
 	pipelineKey.ShaderKey.LightAttenuationMode = (level.info ? static_cast<int>(level.info->lightattenuationmode) : 0);
 
+	if (pipelineKey.ShaderKey.EffectState >= FIRST_USER_SHADER)
+	{
+		const auto& userShader = usershaders[pipelineKey.ShaderKey.EffectState - FIRST_USER_SHADER];
+		pipelineKey.ShaderKey.UseRaytrace = userShader.forceEnableRaytracing;
+	}
+
 	// Is this the one we already have?
 	bool inRenderPass = mCommandBuffer;
 	bool changingPipeline = (!inRenderPass) || (pipelineKey != mPipelineKey);
