@@ -346,18 +346,8 @@ void VkRenderState::ApplyRenderPass(int dt)
 
 	if (pipelineKey.ShaderKey.EffectState >= FIRST_USER_SHADER)
 	{
-		const auto* rtCvar = usershaders[pipelineKey.ShaderKey.EffectState - FIRST_USER_SHADER].raytracingCVar;
-		if (rtCvar)
-		{
-			if (auto boolean = dynamic_cast<const FBoolCVar*>(rtCvar))
-			{
-				pipelineKey.ShaderKey.UseRaytrace = uint64_t(pipelineKey.ShaderKey.UseRaytrace || *boolean);
-			}
-			else if (auto integer = dynamic_cast<const FIntCVar*>(rtCvar))
-			{
-				pipelineKey.ShaderKey.UseRaytrace = uint64_t(pipelineKey.ShaderKey.UseRaytrace || *integer);
-			}
-		}
+		const auto& userShader = usershaders[pipelineKey.ShaderKey.EffectState - FIRST_USER_SHADER];
+		pipelineKey.ShaderKey.UseRaytrace = userShader.forceEnableRaytracing;
 	}
 
 	// Is this the one we already have?

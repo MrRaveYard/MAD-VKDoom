@@ -1996,7 +1996,26 @@ class GLDefsParser
 
 							if (cvarType == CVAR_Bool || cvarType == CVAR_Int)
 							{
-								usershader.raytracingCVar = cvar;
+								int userShaderIndex = usershaders.Size();
+
+								std::function<void(FBaseCVar&)> callback;
+
+								if (cvarType == CVAR_Bool)
+								{
+									callback = [userShaderIndex](FBaseCVar& cvar) {
+										usershaders[userShaderIndex].forceEnableRaytracing = reinterpret_cast<FBoolCVar&>(cvar);
+									};
+									usershader.forceEnableRaytracing = reinterpret_cast<FBoolCVar&>(cvar);
+								}
+								else
+								{
+									callback = [userShaderIndex](FBaseCVar& cvar) {
+										usershaders[userShaderIndex].forceEnableRaytracing = reinterpret_cast<FIntCVar&>(cvar);
+									};
+									usershader.forceEnableRaytracing = reinterpret_cast<FIntCVar&>(cvar);
+								}
+
+								cvar->AttachCallback(std::move(callback));
 							}
 							else
 							{

@@ -154,10 +154,20 @@ public:
 
 	inline void Callback () 
 	{ 
-		if (m_Callback && !inCallback)
+		if (!inCallback)
 		{
 			inCallback = !!(Flags & CVAR_VIRTUAL);	// Virtual CVARs never invoke the callback recursively, giving it a chance to manipulate the value without side effects.
-			m_Callback(*this);
+
+			if (m_Callback)
+			{
+				m_Callback(*this);
+			}
+
+			for (auto& callback : m_Callbacks)
+			{
+				callback(*this);
+			}
+
 			inCallback = false;
 		}
 	}
@@ -230,6 +240,8 @@ public:
 	void* GetExtraDataPointer();
 	void* GetExtraDataPointer2();
 
+	void AttachCallback(std::function<void(FBaseCVar&)> callback);
+
 	int pnum = -1;
 	FName userinfoName;
 
@@ -266,6 +278,8 @@ private:
 
 	void *m_ExtraDataPointer = nullptr;
 	void *m_ExtraDataPointer2 = nullptr;
+
+	TArray<std::function<void(FBaseCVar& cvar)>> m_Callbacks;
 
 	// These need to go away!
 	friend FString C_GetMassCVarString (uint32_t filter, bool compact);

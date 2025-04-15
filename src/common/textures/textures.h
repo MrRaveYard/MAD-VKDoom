@@ -120,7 +120,8 @@ struct UserShaderDesc
 	UserUniforms Uniforms;
 	TMap<FString, FString> ActorFieldBindings;
 
-	FBaseCVar* raytracingCVar = nullptr;
+	// Shader overrides
+	bool forceEnableRaytracing = false;
 
 	void BindActorFields(void * act);
 };
