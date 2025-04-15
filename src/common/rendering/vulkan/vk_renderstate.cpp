@@ -348,7 +348,7 @@ void VkRenderState::ApplyRenderPass(int dt)
 	if (pipelineKey.ShaderKey.EffectState >= FIRST_USER_SHADER)
 	{
 		const auto& userShader = usershaders[pipelineKey.ShaderKey.EffectState - FIRST_USER_SHADER];
-		pipelineKey.ShaderKey.UseRaytrace = userShader.forceEnableRaytracing;
+		pipelineKey.ShaderKey.UseRaytrace |= userShader.forceEnableRaytracing;
 	}
 
 	// Is this the one we already have?
