@@ -137,11 +137,11 @@ float shadowAttenuationShadowMap(vec3 lightpos, int shadowIndex, float softShado
 
 float shadowAttenuation(vec3 lightpos, int shadowIndex, float softShadowRadius, int flags)
 {
-	if(USE_RAYTRACE || (flags & LIGHTINFO_TRACE) > 0)
+	if(USE_RAYTRACE && (DYNLIGHT_RAYTRACE || (flags & LIGHTINFO_TRACE) > 0))
 	{
 		return shadowAttenuationRaytrace(lightpos, shadowIndex, softShadowRadius, flags);
 	}
-	else if(USE_SHADOWMAP)
+	else if(USE_SHADOWMAP && DYNLIGHT_RAYTRACE_SHADOWMAP)
 	{
 		return shadowAttenuationShadowMap(lightpos, shadowIndex, softShadowRadius, flags);
 	}

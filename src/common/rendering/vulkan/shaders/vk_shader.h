@@ -81,8 +81,7 @@ public:
 	{
 		struct
 		{
-			uint64_t Unused0 : 1;
-			uint64_t Unused1 : 1;
+			uint64_t DynlightShadows : 2; // none, shadowmaps, raytrace, raytrace precise
 			uint64_t Simple2D : 1;      // SIMPLE2D, uFogEnabled == -3
 			uint64_t Unused2 : 1;
 			uint64_t TextureMode : 3;   // uTextureMode & 0xffff
@@ -93,7 +92,7 @@ public:
 			uint64_t Unused3 : 1;
 			uint64_t UseShadowmap : 1;  // USE_SHADOWMAP
 			uint64_t UseRaytrace : 1;   // USE_RAYTRACE
-			uint64_t UseRaytracePrecise : 1; // USE_RAYTRACE_PRECISE
+			uint64_t Unused0 : 1;
 			uint64_t PreciseMidtextureTrace : 1; // PRECISE_MIDTEXTURES
 			uint64_t ShadowmapFilter : 4; // SHADOWMAP_FILTER
 			uint64_t FogBeforeLights : 1; // FOG_BEFORE_LIGHTS
