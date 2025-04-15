@@ -333,9 +333,10 @@ void VkRenderState::ApplyRenderPass(int dt)
 	pipelineKey.ShaderKey.LightNoNormals = mLightNoNormals;
 	pipelineKey.ShaderKey.UseSpriteCenter = mUseSpriteCenter;
 
-	pipelineKey.ShaderKey.UseShadowmap = gl_light_shadows == 1;
-	pipelineKey.ShaderKey.UseRaytrace = gl_light_shadows >= 2;
-	pipelineKey.ShaderKey.UseRaytracePrecise = gl_light_shadows >= 3;
+	int lightShadows = gl_light_shadows;
+	pipelineKey.ShaderKey.DynlightShadows = lightShadows;
+	pipelineKey.ShaderKey.UseShadowmap = lightShadows == 1;
+	pipelineKey.ShaderKey.UseRaytrace = lightShadows >= 2;
 	pipelineKey.ShaderKey.PreciseMidtextureTrace = gl_precise_midtextures_trace;
 	pipelineKey.ShaderKey.ShadowmapFilter = std::clamp(int(gl_light_shadow_filter), 0, 15);
 
@@ -1119,9 +1120,10 @@ void VkRenderState::ApplyLevelMeshPipeline(VulkanCommandBuffer* cmdbuffer, VkPip
 
 	// Global state that don't require rebuilding the mesh
 	pipelineKey.ShaderKey.NoFragmentShader = noFragmentShader;
-	pipelineKey.ShaderKey.UseShadowmap = gl_light_shadows == 1;
-	pipelineKey.ShaderKey.UseRaytrace = gl_light_shadows >= 2;
-	pipelineKey.ShaderKey.UseRaytracePrecise = gl_light_shadows >= 3;
+	int lightShadows = gl_light_shadows;
+	pipelineKey.ShaderKey.DynlightShadows = lightShadows;
+	pipelineKey.ShaderKey.UseShadowmap = lightShadows == 1;
+	pipelineKey.ShaderKey.UseRaytrace = lightShadows  >= 2;
 	pipelineKey.ShaderKey.PreciseMidtextureTrace = gl_precise_midtextures_trace;
 	pipelineKey.ShaderKey.ShadowmapFilter = std::clamp(int(gl_light_shadow_filter), 0, 15);
 

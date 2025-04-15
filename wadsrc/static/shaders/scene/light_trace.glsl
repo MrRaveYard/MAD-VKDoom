@@ -120,7 +120,7 @@ float TraceDynLightRay(vec3 origin, float tmin, vec3 direction, float dist)
 
 float traceHit(vec3 origin, vec3 direction, float dist)
 {
-	if (USE_RAYTRACE_PRECISE)
+	if (DYNLIGHT_RAYTRACE_PRECISE)
 		return TraceDynLightRay(origin, 0.01f, direction, dist);
 	else
 		return TraceAnyHit(origin, 0.01f, direction, dist) ? 0.0 : 1.0;
@@ -168,7 +168,7 @@ float traceShadow(vec3 lightpos, float softShadowRadius)
 			float sum = 0.0;
 			const int step_count = SHADOWMAP_FILTER * 4;
 
-			if (USE_RAYTRACE_PRECISE)
+			if (DYNLIGHT_RAYTRACE_PRECISE)
 			{
 				for (int i = 0; i < step_count; i++)
 				{
