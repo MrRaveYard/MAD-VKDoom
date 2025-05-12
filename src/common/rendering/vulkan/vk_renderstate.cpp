@@ -818,6 +818,8 @@ void VkRenderState::SetRenderTarget(VkTextureImage *image, VulkanImageView *dept
 {
 	EndRenderPass();
 
+	auto buffers = fb->GetBuffers();
+
 	mRenderTarget.Image = image;
 	mRenderTarget.DepthStencil = depthStencilView;
 	mRenderTarget.Width = width;
