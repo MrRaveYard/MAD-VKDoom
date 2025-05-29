@@ -56,6 +56,7 @@ CVAR(Bool, gl_multithread, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 EXTERN_CVAR(Float, r_actorspriteshadowdist)
 EXTERN_CVAR(Bool, r_radarclipper)
 EXTERN_CVAR(Bool, r_dithertransparency)
+EXTERN_CVAR(Bool, gl_levelmesh)
 
 thread_local bool isWorkerThread;
 ctpl::thread_pool renderPool(1);
@@ -288,19 +289,25 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip, FRenderState& state)
 	angle_t startAngle = clipper.GetClipAngle(seg->v2);
 	angle_t endAngle = clipper.GetClipAngle(seg->v1);
 	auto &clipperr = *rClipper;
-	angle_t startAngleR = clipperr.PointToPseudoAngle(seg->v2->fX(), seg->v2->fY());
-	angle_t endAngleR = clipperr.PointToPseudoAngle(seg->v1->fX(), seg->v1->fY());
+	angle_t startAngleR = 0;
+	angle_t endAngleR = 0;
 	angle_t paddingR = 0x00200000; // Make radar clipping more aggressive (reveal less)
 
-	if(Viewpoint.IsAllowedOoB() && r_radarclipper && !(Level->flags3 & LEVEL3_NOFOGOFWAR) && (startAngleR - endAngleR >= ANGLE_180))
+	if(Viewpoint.IsAllowedOoB() && r_radarclipper && !(Level->flags3 & LEVEL3_NOFOGOFWAR))
 	{
-		if (!seg->backsector) clipperr.SafeAddClipRange(startAngleR - paddingR, endAngleR + paddingR);
-		else if((seg->sidedef != nullptr) && !uint8_t(seg->sidedef->Flags & WALLF_POLYOBJ) && (currentsector->sectornum != seg->backsector->sectornum))
+		startAngleR = clipperr.PointToPseudoAngle(seg->v2->fX(), seg->v2->fY());
+		endAngleR = clipperr.PointToPseudoAngle(seg->v1->fX(), seg->v1->fY());
+
+		if (startAngleR - endAngleR >= ANGLE_180)
 		{
-			if (in_area == area_default) in_area = hw_CheckViewArea(seg->v1, seg->v2, seg->frontsector, seg->backsector);
-			backsector = hw_FakeFlat(drawctx, seg->backsector, in_area, true);
-			if (hw_CheckClip(seg->sidedef, currentsector, backsector)) clipperr.SafeAddClipRange(startAngleR - paddingR, endAngleR + paddingR);
-			backsector = nullptr;
+			if (!seg->backsector) clipperr.SafeAddClipRange(startAngleR - paddingR, endAngleR + paddingR);
+			else if((seg->sidedef != nullptr) && !uint8_t(seg->sidedef->Flags & WALLF_POLYOBJ) && (currentsector->sectornum != seg->backsector->sectornum))
+			{
+				if (in_area == area_default) in_area = hw_CheckViewArea(seg->v1, seg->v2, seg->frontsector, seg->backsector);
+				backsector = hw_FakeFlat(drawctx, seg->backsector, in_area, true);
+				if (hw_CheckClip(seg->sidedef, currentsector, backsector)) clipperr.SafeAddClipRange(startAngleR - paddingR, endAngleR + paddingR);
+				backsector = nullptr;
+			}
 		}
 	}
 
@@ -393,6 +400,14 @@ void HWDrawInfo::AddLine (seg_t *seg, bool portalclip, FRenderState& state)
 			if (multithread)
 			{
 				jobQueue.AddJob(RenderJob::WallJob, seg->Subsector, seg);
+			}
+			else if (uselevelmesh)
+			{
+				if (seg->sidedef)
+				{
+					SeenSides.Add(seg->sidedef->Index());
+					rendered_lines++;
+				}
 			}
 			else
 			{
@@ -535,7 +550,7 @@ void HWDrawInfo::AddLines(subsector_t * sub, sector_t * sector, FRenderState& st
 //
 //==========================================================================
 
-inline bool PointOnLine(const DVector2 &pos, const linebase_t *line)
+static bool PointOnLine(const DVector2 &pos, const linebase_t *line)
 {
 	double v = (pos.Y - line->v1->fY()) * line->Delta().X + (line->v1->fX() - pos.X) * line->Delta().Y;
 	return fabs(v) <= EQUAL_EPSILON;
@@ -716,7 +731,7 @@ void HWDrawInfo::DoSubsector(subsector_t * sub, FRenderState& state)
 	if(Viewpoint.IsAllowedOoB() && sector->isSecret() && sector->wasSecret() && !r_radarclipper) return;
 
 	// cull everything if subsector outside all relevant clippers
-	if ((sub->polys == nullptr))
+	if (Viewpoint.IsAllowedOoB() && (sub->polys == nullptr))
 	{
 		auto &clipper = *mClipper;
 		auto &clipperv = *vClipper;
@@ -886,6 +901,10 @@ void HWDrawInfo::DoSubsector(subsector_t * sub, FRenderState& state)
 					{
 						jobQueue.AddJob(RenderJob::FlatJob, sub);
 					}
+					else if (uselevelmesh)
+					{
+						SeenSectors.Add(sub->sector->Index());
+					}
 					else
 					{
 						HWFlat flat;
@@ -916,6 +935,10 @@ void HWDrawInfo::DoSubsector(subsector_t * sub, FRenderState& state)
 					{
 						jobQueue.AddJob(RenderJob::PortalJob, sub, (seg_t *)portal);
 					}
+					else if (uselevelmesh)
+					{
+						// To do: what to do here?
+					}
 					else
 					{
 						AddSubsectorToPortal(portal, sub);
@@ -928,6 +951,10 @@ void HWDrawInfo::DoSubsector(subsector_t * sub, FRenderState& state)
 					if (multithread)
 					{
 						jobQueue.AddJob(RenderJob::PortalJob, sub, (seg_t *)portal);
+					}
+					else if (uselevelmesh)
+					{
+						// To do: what to do here?
 					}
 					else
 					{
@@ -1029,6 +1056,13 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites, FRenderState& state)
 	validcount++;	// used for processing sidedefs only once by the renderer.
 
 	multithread = gl_multithread;
+	uselevelmesh = gl_levelmesh && !outer;
+	if (uselevelmesh)
+		multithread = false;
+
+	SeenSectors.Clear();
+	SeenSides.Clear();
+
 	if (multithread)
 	{
 		jobQueue.ReleaseAll();

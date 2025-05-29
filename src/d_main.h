@@ -34,7 +34,7 @@
 #include "c_cvars.h"
 
 extern bool		advancedemo;
-extern bool hud_toggled;
+EXTERN_CVAR(Bool, hud_toggled);
 void D_ToggleHud();
 
 struct event_t;
@@ -161,7 +161,12 @@ constexpr int vid_rendermode = 4;
 
 inline bool V_IsHardwareRenderer()
 {
-	return vid_rendermode == 4;
+	return vid_rendermode == 4 || vid_rendermode == 2;
+}
+
+inline bool V_IsSoftwareRenderer()
+{
+	return !V_IsHardwareRenderer();
 }
 
 inline bool V_IsTrueColor()

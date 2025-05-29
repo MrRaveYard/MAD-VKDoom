@@ -241,9 +241,9 @@ CUSTOM_CVAR(Int, vid_rendermode, 4, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOIN
 	{
 		self = 4;
 	}
-	else if (self == 2 || self == 3)
+	else if (self == 3)
 	{
-		self = self - 2; // softpoly to software
+		self = 4; // map old softpoly truecolor to hwrenderer
 	}
 
 	if (usergame)
@@ -316,7 +316,6 @@ CUSTOM_CVAR(Int, I_FriendlyWindowTitle, 1, CVAR_GLOBALCONFIG|CVAR_ARCHIVE|CVAR_N
 CVAR(Bool, cl_nointros, false, CVAR_ARCHIVE)
 
 bool RunningAsTool = false;
-bool hud_toggled = false;
 bool wantToRestart;
 bool DrawFSHUD;				// [RH] Draw fullscreen HUD?
 bool devparm;				// started game with -devparm
@@ -361,16 +360,18 @@ static int pagetic;
 //
 //==========================================================================
 
+CVAR(Int, saved_screenblocks, 10, CVAR_ARCHIVE)
+CVAR(Bool, saved_drawplayersprite, true, CVAR_ARCHIVE)
+CVAR(Bool, saved_showmessages, true, CVAR_ARCHIVE)
+CVAR(Bool, hud_toggled, false, CVAR_ARCHIVE)
+
 void D_ToggleHud()
 {
-	static int saved_screenblocks;
-	static bool saved_drawplayersprite, saved_showmessages;
-
 	if ((hud_toggled = !hud_toggled))
 	{
-		saved_screenblocks = screenblocks;
-		saved_drawplayersprite = r_drawplayersprites;
-		saved_showmessages = show_messages;
+		saved_screenblocks = *screenblocks;
+		saved_drawplayersprite = *r_drawplayersprites;
+		saved_showmessages = *show_messages;
 		screenblocks = 12;
 		r_drawplayersprites = false;
 		show_messages = false;
@@ -379,9 +380,9 @@ void D_ToggleHud()
 	}
 	else
 	{
-		screenblocks = saved_screenblocks;
-		r_drawplayersprites = saved_drawplayersprite;
-		show_messages = saved_showmessages;
+		screenblocks =*saved_screenblocks;
+		r_drawplayersprites = *saved_drawplayersprite;
+		show_messages = *saved_showmessages;
 	}
 }
 CCMD(togglehud)
@@ -404,7 +405,7 @@ void D_Render(std::function<void()> action, bool interpolate)
 	for (auto Level : AllLevels())
 	{
 		// Check for the presence of dynamic lights at the start of the frame once.
-		if ((gl_lights && vid_rendermode == 4) || (r_dynlights && vid_rendermode != 4) || Level->lightmaps)
+		if ((gl_lights && V_IsHardwareRenderer()) || (r_dynlights && V_IsSoftwareRenderer()) || Level->lightmaps)
 		{
 			Level->HasDynamicLights = Level->lights || Level->lightmaps;
 		}
@@ -1065,7 +1066,7 @@ void D_Display ()
 	// No wipes when in a stereo3D VR mode
 	else if (gamestate != wipegamestate && gamestate != GS_FULLCONSOLE && gamestate != GS_TITLELEVEL)
 	{
-		if (vr_mode == 0 || vid_rendermode != 4)
+		if (vr_mode == 0 || V_IsSoftwareRenderer())
 		{
 			// save the current screen if about to wipe
 			wipestart = screen->WipeStartScreen();
@@ -1929,12 +1930,15 @@ FExecList *D_MultiExec (FArgs *list, FExecList *exec)
 static void GetCmdLineFiles(std::vector<std::string>& wadfiles)
 {
 	FString *args;
-	int i, argc;
+	int i;
+	int argc;
 
 	argc = Args->CheckParmList("-file", &args);
 
+	assert(wadfiles.size() < INT_MAX);
+
 	// [RL0] Check for array size to only add new wads
-	for (i = wadfiles.size(); i < argc; ++i)
+	for (i = int(wadfiles.size()); i < argc; ++i)
 	{
 		D_AddWildFile(wadfiles, args[i].GetChars(), ".wad", GameConfig);
 	}
@@ -3402,11 +3406,8 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<std::string>& allw
 		screen->CompileNextShader();
 		if (StartScreen != nullptr) StartScreen->Render();
 	}
-	else
-	{
-		// Update screen palette when restarting
-		screen->UpdatePalette();
-	}
+
+	screen->UpdatePalette();
 
 	// Base systems have been inited; enable cvar callbacks
 	FBaseCVar::EnableCallbacks ();

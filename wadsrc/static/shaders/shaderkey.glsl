@@ -20,7 +20,7 @@
 #define SK1_USE_SHADOWMAP			(1  << 12)
 #define SK1_USE_RAYTRACE			(1  << 13)
 #define SK1_USE_RAYTRACE_PRECISE	(1  << 14)
-#define SK1_PRECISE_MIDTEXTURES		(1  << 15)
+
 #define SK1_SHADOWMAP_FILTER		(15 << 16)
 #define SK1_FOG_BEFORE_LIGHTS		(1  << 20)
 #define SK1_FOG_AFTER_LIGHTS		(1  << 21)
@@ -37,7 +37,7 @@
 	#define SK1_LIGHT_LIGHT_BLEND_COLORED_CLAMP		1
 	#define SK1_LIGHT_BLEND_UNCLAMPED				2
 #define SK1_LIGHTATTENUATIONMODE	(1  << 29)
-//#define SK1_USE_LEVELMESH			(1  << 30)
+#define SK1_PALETTEMODE				(1  << 30)
 #define SK1_FOGBALLS				(1  << 31)
 
 //#define SK2_NOFRAGMENTSHADER		(1  << 0)

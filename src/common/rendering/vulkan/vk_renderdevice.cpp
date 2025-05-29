@@ -403,10 +403,10 @@ void VulkanRenderDevice::UploadEnvironmentMaps(int cubemapCount, const TArray<ui
 	mTextureManager->CreatePrefiltermap(128, 6 * cubemapCount, prefilterMaps);
 }
 
-void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
+void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, bool palettePostprocess, const std::function<void()> &afterBloomDrawEndScene2D)
 {
 	if (!swscene) mPostprocess->BlitSceneToPostprocess(); // Copy the resulting scene to the current post process texture
-	mPostprocess->PostProcessScene(fixedcm, flash, afterBloomDrawEndScene2D);
+	mPostprocess->PostProcessScene(fixedcm, flash, palettePostprocess, afterBloomDrawEndScene2D);
 }
 
 const char* VulkanRenderDevice::DeviceName() const
@@ -482,6 +482,8 @@ void VulkanRenderDevice::UpdatePalette()
 {
 	if (mPostprocess)
 		mPostprocess->ClearTonemapPalette();
+
+	mTextureManager->SetGamePalette();
 }
 
 FTexture *VulkanRenderDevice::WipeStartScreen()
@@ -604,6 +606,8 @@ void VulkanRenderDevice::BeginFrame()
 	}
 	hwtexturecount = mTextureManager->GetHWTextureCount();
 
+	FrameTileUpdates = 0;
+
 	GetRenderPassManager()->ProcessMainThreadTasks();
 	GetTextureManager()->ProcessMainThreadTasks();
 
@@ -686,6 +690,7 @@ void VulkanRenderDevice::SetLevelMesh(LevelMesh* mesh)
 
 void VulkanRenderDevice::UpdateLightmaps(const TArray<LightmapTile*>& tiles)
 {
+	FrameTileUpdates += (int)tiles.size();
 	GetLightmapper()->Raytrace(tiles);
 }
 
@@ -745,7 +750,7 @@ void VulkanRenderDevice::DownloadLightmap(int arrayIndex, uint16_t* buffer)
 	mTextureManager->DownloadLightmap(arrayIndex, buffer);
 }
 
-int VulkanRenderDevice::GetBindlessTextureIndex(FMaterial* material, int clampmode, int translation)
+int VulkanRenderDevice::GetBindlessTextureIndex(FMaterial* material, int clampmode, int translation, bool paletteMode)
 {
 	GlobalShaderAddr addr;
 	auto globalshader = GetGlobalShader(material->GetShaderIndex(), nullptr, addr);
@@ -754,6 +759,7 @@ int VulkanRenderDevice::GetBindlessTextureIndex(FMaterial* material, int clampmo
 	materialState.mMaterial = material;
 	materialState.mClampMode = clampmode;
 	materialState.mTranslation = translation;
+	materialState.mPaletteMode = paletteMode;
 
 	if(addr.type == 1 && *globalshader)
 	{ // handle per-map global shaders

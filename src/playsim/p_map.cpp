@@ -215,7 +215,7 @@ bool P_CanCrossLine(AActor *mo, line_t *line, DVector3 next)
 		assert(VIndex != ~0u);
 	}
 
-	VMValue params[] = { mo, line, next.X, next.Y, next.Z, false };
+	VMValue params[] = { mo, line, next.X, next.Y, next.Z };
 	VMReturn ret;
 	int retval;
 	ret.IntAt(&retval);
@@ -7191,18 +7191,23 @@ bool P_ChangeSector(sector_t *sector, int crunch, double amt, int floorOrCeil, b
 		}
 
 	}
-	switch(floorOrCeil)
-	{	// update levelmesh
-	case 0:
-		LevelMeshUpdater->FloorHeightChanged(sector);
-		break;
-	case 1:
-		LevelMeshUpdater->CeilingHeightChanged(sector);
-		break;
-	case 2:
-		LevelMeshUpdater->MidTex3DHeightChanged(sector);
-		break;
+
+	if (amt != 0.0)
+	{
+		switch(floorOrCeil)
+		{	// update levelmesh
+		case 0:
+			LevelMeshUpdater->FloorHeightChanged(sector);
+			break;
+		case 1:
+			LevelMeshUpdater->CeilingHeightChanged(sector);
+			break;
+		case 2:
+			LevelMeshUpdater->MidTex3DHeightChanged(sector);
+			break;
+		}
 	}
+
 	return cpos.nofit;
 }
 

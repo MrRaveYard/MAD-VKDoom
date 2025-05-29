@@ -115,7 +115,7 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 	ThinkCycles.Clock();
 
 	bool dolights;
-	if ((gl_lights && vid_rendermode == 4) || (r_dynlights && vid_rendermode != 4) || Level->lightmaps)
+	if ((gl_lights && V_IsHardwareRenderer()) || (r_dynlights && V_IsSoftwareRenderer()) || Level->lightmaps)
 	{
 		dolights = true;// Level->lights || (Level->flags3 & LEVEL3_LIGHTCREATED) || Level->lightmaps;
 	}
@@ -359,12 +359,12 @@ void FThinkerCollection::SerializeThinkers(FSerializer &arc, bool hubLoad)
 								else if (thinker->ObjectFlags & OF_JustSpawned)
 								{
 									FreshThinkers[i].AddTail(thinker);
-									thinker->PostSerialize();
+									thinker->CallPostSerialize();
 								}
 								else
 								{
 									Thinkers[i].AddTail(thinker);
-									thinker->PostSerialize();
+									thinker->CallPostSerialize();
 								}
 							}
 						}
@@ -815,6 +815,16 @@ void DThinker::CallPostBeginPlay()
 
 void DThinker::PostSerialize()
 {
+}
+
+void DThinker::CallPostSerialize()
+{
+	PostSerialize();
+	IFOVERRIDENVIRTUALPTRNAME(this, NAME_Thinker, OnLoad)
+	{
+		VMValue params[] = { this };
+		VMCall(func, params, 1, nullptr, 0);
+	}
 }
 
 //==========================================================================

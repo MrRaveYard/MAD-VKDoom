@@ -332,6 +332,7 @@ void HWPortal::RemoveStencil(HWDrawInfo *di, FRenderState &state, bool usestenci
 	bool needdepth = NeedDepthBuffer();
 
 	// Restore the old view
+
 	auto &vp = di->Viewpoint;
 	if (vp.camera != nullptr) vp.camera->renderflags = (vp.camera->renderflags & ~RF_MAYBEINVISIBLE) | savedvisibility;
 
@@ -1044,7 +1045,6 @@ void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 	}
 	di->SetCameraPos(vp.Pos);
 
-
 	if (texture->isFullbright())
 	{
 		// glowing textures are always drawn full bright without color
@@ -1058,6 +1058,12 @@ void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 		SetFog(state, di->Level, di->lightmode, origin->lightlevel, rel, di->isFullbrightScene(), &origin->colormap, false, di->drawctx->portalState.inskybox);
 	}
 
+	if (origin->sunlight)
+	{
+		float attenuation = std::max(FVector3(sp->plane.normal) | level.SunDirection, 0.0f);
+		FVector3 suncolor = level.SunColor * (attenuation * level.SunIntensity);
+		state.SetDynLight(suncolor.X, suncolor.Y, suncolor.Z);
+	}
 
 	state.EnableBrightmap(true);
 	state.SetMaterial(texture, UF_Texture, 0, CLAMP_NONE, NO_TRANSLATION, -1);
@@ -1075,6 +1081,9 @@ void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 
 	if (texmatrix)
 		state.SetTextureMatrix(VSMatrix::identity());
+
+	if (origin->sunlight)
+		state.SetDynLight(0.0f, 0.0f, 0.0f);
 }
 
 

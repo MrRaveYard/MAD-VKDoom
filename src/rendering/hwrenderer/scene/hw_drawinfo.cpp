@@ -36,6 +36,8 @@
 #include "hw_drawinfo.h"
 #include "hw_drawcontext.h"
 #include "hw_walldispatcher.h"
+#include "hw_visibleset.h"
+#include "hw_fakeflat.h"
 #include "po_man.h"
 #include "models.h"
 #include "hw_clock.h"
@@ -46,13 +48,18 @@
 #include "v_draw.h"
 #include "texturemanager.h"
 #include "actorinlines.h"
-#include "g_levellocals.h"
+#include "hw_vertexbuilder.h"
 #include "hw_lighting.h"
+#include "d_main.h"
+#include "swrenderer/r_swcolormaps.h"
 
 EXTERN_CVAR(Float, r_visibility)
 EXTERN_CVAR(Int, lm_background_updates);
 EXTERN_CVAR(Float, r_actorspriteshadowdist)
 EXTERN_CVAR(Bool, gl_portals)
+EXTERN_CVAR(Bool, gl_render_things);
+EXTERN_CVAR(Bool, gl_render_walls);
+EXTERN_CVAR(Bool, gl_render_flats);
 
 CVAR(Bool, lm_always_update, false, 0)
 
@@ -139,9 +146,13 @@ void HWDrawInfo::StartScene(FRenderViewpoint &parentvp, HWViewpointUniforms *uni
 	for (int i = 0; i < GLDL_TYPES; i++) drawlists[i].Reset();
 	hudsprites.Clear();
 	Fogballs.Clear();
-	VisibleTiles.Clear();
-	visibleDyn = 0;
 	vpIndex = 0;
+
+	if (!outer)
+	{
+		static int counter = 1;
+		TileSeenCounter = ++counter;
+	}
 
 	// Fullbright information needs to be propagated from the main view.
 	if (outer != nullptr) FullbrightFlags = outer->FullbrightFlags;
@@ -224,8 +235,8 @@ void HWDrawInfo::ClearBuffers()
 void HWDrawInfo::UpdateCurrentMapSection()
 {
 	int mapsection = Level->PointInRenderSubsector(Viewpoint.Pos)->mapsection;
-	if (Viewpoint.IsAllowedOoB())
-		mapsection = Level->PointInRenderSubsector(Viewpoint.camera->Pos())->mapsection;
+	if (Viewpoint.IsAllowedOoB() || Viewpoint.IsOrtho())
+		mapsection = Level->PointInRenderSubsector(Viewpoint.OffPos)->mapsection;
 	CurrentMapSections.Set(mapsection);
 }
 
@@ -319,25 +330,46 @@ int HWDrawInfo::SetFullbrightFlags(player_t *player)
 //
 //-----------------------------------------------------------------------------
 
-angle_t HWDrawInfo::FrustumAngle()
+angle_t OoBFrustumAngle(FRenderViewpoint* Viewpoint)
 {
 	// If pitch is larger than this you can look all around at an FOV of 90 degrees
-	if (fabs(Viewpoint.HWAngles.Pitch.Degrees()) > 89.0)  return 0xffffffff;
-	else if (fabs(Viewpoint.HWAngles.Pitch.Degrees()) > 46.0 && !Viewpoint.IsAllowedOoB())  return 0xffffffff; // Just like 4.12.2 and older did
+	if (fabs(Viewpoint->HWAngles.Pitch.Degrees()) > 89.0)  return 0xffffffff;
 	int aspMult = AspectMultiplier(r_viewwindow.WidescreenRatio); // 48 == square window
-	double absPitch = fabs(Viewpoint.HWAngles.Pitch.Degrees());
+	double absPitch = fabs(Viewpoint->HWAngles.Pitch.Degrees());
 	 // Smaller aspect ratios still clip too much. Need a better solution
 	if (aspMult > 36 && absPitch > 30.0)  return 0xffffffff;
 	else if (aspMult > 40 && absPitch > 25.0)  return 0xffffffff;
 	else if (aspMult > 45 && absPitch > 20.0)  return 0xffffffff;
 	else if (aspMult > 47 && absPitch > 10.0) return 0xffffffff;
 
-	double xratio = r_viewwindow.FocalTangent / Viewpoint.PitchCos;
+	double xratio = r_viewwindow.FocalTangent / Viewpoint->PitchCos;
 	double floatangle = 0.05 + atan ( xratio ) * 48.0 / aspMult; // this is radians
 	angle_t a1 = DAngle::fromRad(floatangle).BAMs();
 
 	if (a1 >= ANGLE_90) return 0xffffffff;
 	return a1;
+}
+
+angle_t HWDrawInfo::FrustumAngle()
+{
+	if (Viewpoint.IsAllowedOoB())
+	{
+		return OoBFrustumAngle(&Viewpoint);
+	}
+	else
+	{
+		float tilt = fabs(Viewpoint.HWAngles.Pitch.Degrees());
+
+		// If the pitch is larger than this you can look all around at a FOV of 90°
+		if (tilt > 46.0f) return 0xffffffff;
+
+		// ok, this is a gross hack that barely works...
+		// but at least it doesn't overestimate too much...
+		double floatangle = 2.0 + (45.0 + ((tilt / 1.9)))*Viewpoint.FieldOfView.Degrees() * 48.0 / AspectMultiplier(r_viewwindow.WidescreenRatio) / 90.0;
+		angle_t a1 = DAngle::fromDeg(floatangle).BAMs();
+		if (a1 >= ANGLE_180) return 0xffffffff;
+		return a1;
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -407,6 +439,77 @@ HWDecal *HWDrawInfo::AddDecal(bool onmirror)
 	return decal;
 }
 
+void HWDrawInfo::RenderPVS(bool drawpsprites, FRenderState& state)
+{
+	if (Viewpoint.IsOrtho() || !(gl_levelmesh && !outer))
+	{
+		RenderBSP(Level->HeadNode(), drawpsprites, state);
+	}
+	else
+	{
+		// Anything outside the BSP using this?
+		viewx = FLOAT2FIXED(Viewpoint.Pos.X);
+		viewy = FLOAT2FIXED(Viewpoint.Pos.Y);
+		multithread = false;
+		uselevelmesh = true;
+
+		Bsp.Clock();
+
+		ClipWall.Clock();
+		static HWVisibleSetThreads threads;
+		threads.FindPVS(this);
+		ClipWall.Unclock();
+
+		if (!gl_levelmesh) // Update sector heights for the non-levelmesh rendering of sectors
+		{
+			for (int sectorIndex : SeenSectors.Get())
+				CheckUpdate(state, &Level->sectors[sectorIndex]);
+		}
+
+		for (int sectorIndex : SeenSectors.Get())
+		{
+			Level->sectors[sectorIndex].MoreFlags |= SECMF_DRAWN;
+		}
+
+		for (int subIndex : SeenHackedSubsectors.Get())
+		{
+			SubsectorHackInfo sh = { &Level->subsectors[subIndex], 0 };
+			SubsectorHacks.Push(sh);
+		}
+
+		if (gl_render_things)
+		{
+			for (int subIndex : SeenSubsectors.Get())
+			{
+				subsector_t* sub = &Level->subsectors[subIndex];
+				sector_t* sector = sub->sector;
+
+				bool things = sector->touching_renderthings || sector->sectorportal_thinglist;
+				bool particles = sub->sprites.Size() > 0 || Level->ParticlesInSubsec[sub->Index()] != NO_PARTICLE;
+
+				if (things || particles)
+				{
+					auto fakesector = hw_FakeFlat(drawctx, sector, in_area, false);
+
+					if (things)
+						RenderThings(sub, fakesector, state);
+
+					if (particles)
+						RenderParticles(sub, fakesector, state);
+				}
+			}
+		}
+
+		// Process all the sprites on the current portal's back side which touch the portal.
+		if (mCurrentPortal != nullptr) mCurrentPortal->RenderAttached(this, state);
+
+		if (drawpsprites)
+			PreparePlayerSprites(Viewpoint.sector, in_area, state);
+
+		Bsp.Unclock();
+	}
+}
+
 //-----------------------------------------------------------------------------
 //
 // CreateScene
@@ -425,7 +528,9 @@ void HWDrawInfo::CreateScene(bool drawpsprites, FRenderState& state)
 	{
 		double a2 = 20.0 + 0.5*Viewpoint.FieldOfView.Degrees(); // FrustumPitch for vertical clipping
 		if (a2 > 179.0) a2 = 179.0;
-		vClipper->SafeAddClipRangeDegPitches(vp.HWAngles.Pitch.Degrees() - a2, vp.HWAngles.Pitch.Degrees() + a2); // clip the suplex range
+		double pitchmult = !!(drawctx->portalState.PlaneMirrorFlag & 1) ? -1.0 : 1.0;
+		vClipper->SafeAddClipRangeDegPitches(pitchmult * vp.HWAngles.Pitch.Degrees() - a2, pitchmult * vp.HWAngles.Pitch.Degrees() + a2); // clip the suplex range
+		Viewpoint.PitchSin *= pitchmult;
 	}
 
 	// reset the portal manager
@@ -435,137 +540,23 @@ void HWDrawInfo::CreateScene(bool drawpsprites, FRenderState& state)
 
 	// clip the scene and fill the drawlists
 
-	if (gl_levelmesh && !outer)
+	RenderPVS(drawpsprites, state);
+
+	if (uselevelmesh)
 	{
-		// Give the DrawInfo the viewpoint in fixed point because that's what the nodes are.
-		viewx = FLOAT2FIXED(Viewpoint.Pos.X);
-		viewy = FLOAT2FIXED(Viewpoint.Pos.Y);
+		level.levelMesh->CurFrameStats.Portals++;
 
-		validcount++;	// used for processing sidedefs only once by the renderer.
-
-		auto& portals = level.levelMesh->WallPortals;
-
-		// draw level into depth buffer
-		state.SetColorMask(false);
-		state.SetCulling(Cull_CW);
-		state.DrawLevelMesh(LevelMeshDrawType::Opaque, true);
-		state.DrawLevelMesh(LevelMeshDrawType::Masked, true);
-		if (gl_portals)
+		for (int sideIndex : SeenSides.Get())
 		{
-			state.SetDepthBias(1, 128);
-			state.DrawLevelMesh(LevelMeshDrawType::Portal, true);
-			state.SetDepthBias(0, 0);
-		}
-
-		// use occlusion queries on all portals in level to decide which are visible
-		int queryStart = state.GetNextQueryIndex();
-		state.SetDepthMask(false);
-		state.EnableTexture(false);
-		state.SetEffect(EFF_PORTAL);
-
-		if (!gl_portals)
-			state.SetColorMask(true); // For debugging where the query is
-
-		for (HWWall* wall : portals)
-		{
-			state.BeginQuery();
-
-			// sector portals not handled yet by PutWallPortal
-			if (wall->portaltype != PORTALTYPE_SECTORSTACK)
+			for (HWWall& portal : level.levelMesh->GetSidePortals(sideIndex))
 			{
-				wall->MakeVertices(state, false);
-				wall->RenderWall(state, HWWall::RWF_BLANK);
-				wall->vertcount = 0;
-			}
-
-			state.EndQuery();
-		}
-		state.SetEffect(EFF_NONE);
-		state.EnableTexture(gl_texture);
-		state.SetColorMask(true);
-		state.SetDepthMask(true);
-		int queryEnd = state.GetNextQueryIndex();
-
-		state.DispatchLightTiles(VPUniforms.mViewMatrix, VPUniforms.mProjectionMatrix.get()[5]);
-
-		// draw opaque level so the GPU has something to do while we examine the query results
-		state.DrawLevelMesh(LevelMeshDrawType::Opaque, false);
-		state.DrawLevelMesh(LevelMeshDrawType::Masked, false);
-		if (!gl_portals)
-		{
-			state.SetDepthBias(1, 128);
-			state.DrawLevelMesh(LevelMeshDrawType::Portal, false);
-			state.SetDepthBias(0, 0);
-		}
-		state.SetCulling(Cull_None);
-
-		if (queryStart != queryEnd)
-		{
-			// retrieve the query results and use them to fill the portal manager with portals
-			state.GetQueryResults(queryStart, queryEnd - queryStart, QueryResultsBuffer);
-			for (unsigned int i = 0, count = QueryResultsBuffer.Size(); i < count; i++)
-			{
-				bool portalVisible = QueryResultsBuffer[i];
-				if (portalVisible)
+				// sector portals not handled yet by PutWallPortal
+				if (portal.portaltype != PORTALTYPE_SECTORSTACK)
 				{
-					PutWallPortal(*portals[i], state);
+					PutWallPortal(portal, state);
 				}
 			}
 		}
-
-		// Draw Decals
-		{
-			level.levelMesh->ProcessDecals(this, state);
-			state.SetRenderStyle(STYLE_Translucent);
-			state.SetDepthFunc(DF_LEqual);
-			DrawDecals(state, Decals[0]);
-			DrawDecals(state, Decals[1]); // Mirror decals - when should they be drawn?
-			Decals[0].Clear();
-			Decals[1].Clear();
-		}
-
-		// Draw sprites
-		auto it = level.GetThinkerIterator<AActor>();
-		AActor* thing;
-		while ((thing = it.Next()) != nullptr)
-		{
-			HWSprite sprite;
-
-			if (R_ShouldDrawSpriteShadow(thing))
-			{
-				double dist = (thing->Pos() - vp.Pos).LengthSquared();
-				double check = r_actorspriteshadowdist;
-				if (dist <= check * check)
-				{
-					sprite.Process(this, state, thing, thing->Sector, in_area, false, true);
-				}
-			}
-
-			sprite.Process(this, state, thing, thing->Sector, in_area, false);
-		}
-
-		// Draw particles
-		for (uint16_t i = level.ActiveParticles; i != NO_PARTICLE; i = level.Particles[i].tnext)
-		{
-			if (Level->Particles[i].subsector)
-			{
-				HWSprite sprite;
-				sprite.ProcessParticle(this, state, &Level->Particles[i], Level->Particles[i].subsector->sector, nullptr);
-			}
-		}
-
-		// Process all the sprites on the current portal's back side which touch the portal.
-		if (mCurrentPortal != nullptr) mCurrentPortal->RenderAttached(this, state);
-
-		if (drawpsprites)
-			PreparePlayerSprites(Viewpoint.sector, in_area, state);
-	}
-	else
-	{
-		if (gl_levelmesh && level.levelMesh)
-			level.levelMesh->CurFrameStats.Portals++;
-
-		RenderBSP(Level->HeadNode(), drawpsprites, state);
 	}
 
 	// And now the crappy hacks that have to be done to avoid rendering anomalies.
@@ -691,44 +682,62 @@ void HWDrawInfo::PutWallPortal(HWWall wall, FRenderState& state)
 
 void HWDrawInfo::UpdateLightmaps()
 {
-	if (!outer && VisibleTiles.Size() < unsigned(lm_background_updates))
+	if (outer)
+		outer->UpdateLightmaps();
+
+	VisibleTiles.Result.Clear();
+
+	size_t max_updates = (size_t)lm_max_updates;
+
+	// We always must bake tiles that received new geometry
+	for (auto tile : VisibleTiles.Geometry)
+		VisibleTiles.Result.Push(tile);
+
+	if (VisibleTiles.Result.size() < max_updates)
 	{
-		int unbaked = 0;
-		int dynamic = 0;
+		// We got room for more. Include some visible tiles that are being background updated
+		for (auto tile : VisibleTiles.Background)
+			VisibleTiles.Result.Push(tile);
 
-		for (auto& e : level.levelMesh->Lightmap.Tiles)
+		if (VisibleTiles.Result.size() < max_updates)
 		{
-			if (e.NeedsUpdate)
+			// We still have room. Add tiles that received new light
+			for (auto tile : VisibleTiles.ReceivedNewLight)
+				VisibleTiles.Result.Push(tile);
+
+			if (VisibleTiles.Result.size() < max_updates)
 			{
-				if(e.AlwaysUpdate == 0) unbaked++;
-				if(e.AlwaysUpdate != 0) dynamic++;
+				max_updates = VisibleTiles.Result.size() + (size_t)lm_background_updates;
 
-				VisibleTiles.Push(&e);
-
-				if((!dynamic && (VisibleTiles.Size() >= unsigned(lm_background_updates))) || unbaked >= unsigned(lm_background_updates)) break;
+				// Look for more background updates
+				for (auto& e : level.levelMesh->Lightmap.Tiles)
+				{
+					if (e.NeedsInitialBake && e.LastSeen != TileSeenCounter)
+					{
+						VisibleTiles.Result.Push(&e);
+						if (VisibleTiles.Result.size() >= max_updates)
+							break;
+					}
+				}
+			}
+			else
+			{
+				VisibleTiles.Result.resize(max_updates);
 			}
 		}
-
-		if(unbaked && dynamic)
+		else
 		{
-			std::sort(VisibleTiles.begin(), VisibleTiles.end(), [](LightmapTile *a, LightmapTile *b){return (!!a->AlwaysUpdate) < (!!b->AlwaysUpdate);});
-		}
-
-		if(VisibleTiles.Size() > unsigned(lm_background_updates))
-		{
-			VisibleTiles.Resize(lm_background_updates);
+			VisibleTiles.Result.resize(max_updates);
 		}
 	}
-	screen->UpdateLightmaps(VisibleTiles);
-}
 
-//-----------------------------------------------------------------------------
-//
-// RenderScene
-//
-// Draws the current draw lists for the non GLSL renderer
-//
-//-----------------------------------------------------------------------------
+	screen->UpdateLightmaps(VisibleTiles.Result);
+
+	VisibleTiles.Geometry.Clear();
+	VisibleTiles.Background.Clear();
+	VisibleTiles.ReceivedNewLight.Clear();
+	VisibleTiles.Result.Clear();
+}
 
 void HWDrawInfo::RenderScene(FRenderState &state)
 {
@@ -738,6 +747,15 @@ void HWDrawInfo::RenderScene(FRenderState &state)
 	UpdateLightmaps();
 
 	state.SetLightMode((int)lightmode);
+	
+	if (!V_IsTrueColor())
+	{
+		state.SetPaletteMode(!V_IsTrueColor());
+
+		FColormap cm;
+		cm.Clear();
+		state.SetSWColormap(GetColorTable(cm));
+	}
 
 	state.SetDepthMask(true);
 
@@ -760,12 +778,31 @@ void HWDrawInfo::RenderScene(FRenderState &state)
 
 	state.EnableTexture(gl_texture);
 	state.EnableBrightmap(true);
+
+	// To do: replace this is classic light lists
+	state.ApplyLevelMesh();
+	DrawSeenSides(state, LevelMeshDrawType::Opaque, true);
+	DrawSeenFlats(state, LevelMeshDrawType::Opaque, true);
+	if (uselevelmesh)
+		state.DispatchLightTiles(VPUniforms.mViewMatrix, VPUniforms.mProjectionMatrix.get()[5]);
+
+	state.ApplyLevelMesh();
+	DrawSeenSides(state, LevelMeshDrawType::Opaque, false);
 	drawlists[GLDL_PLAINWALLS].DrawWalls(this, state, false);
+
+	state.ApplyLevelMesh();
+	DrawSeenFlats(state, LevelMeshDrawType::Opaque, false);
 	drawlists[GLDL_PLAINFLATS].DrawFlats(this, state, false);
 
 	// Part 2: masked geometry. This is set up so that only pixels with alpha>gl_mask_threshold will show
 	state.AlphaFunc(Alpha_GEqual, gl_mask_threshold);
+
+	state.ApplyLevelMesh();
+	DrawSeenSides(state, LevelMeshDrawType::Masked, false);
 	drawlists[GLDL_MASKEDWALLS].DrawWalls(this, state, false);
+
+	state.ApplyLevelMesh();
+	DrawSeenFlats(state, LevelMeshDrawType::Masked, false);
 	drawlists[GLDL_MASKEDFLATS].DrawFlats(this, state, false);
 
 	// Part 3: masked geometry with polygon offset. This list is empty most of the time so only waste time on it when in use.
@@ -778,6 +815,8 @@ void HWDrawInfo::RenderScene(FRenderState &state)
 
 	drawlists[GLDL_MODELS].Draw(this, state, false);
 
+	state.SetPaletteMode(false); // Translucent stuff uses other rules in the software renderer. We don't support that right now.
+
 	state.SetRenderStyle(STYLE_Translucent);
 
 	// Part 4: Draw decals (not a real pass)
@@ -785,6 +824,22 @@ void HWDrawInfo::RenderScene(FRenderState &state)
 	DrawDecals(state, Decals[0]);
 
 	RenderAll.Unclock();
+}
+
+void HWDrawInfo::DrawSeenSides(FRenderState& state, LevelMeshDrawType drawType, bool noFragmentShader)
+{
+	RenderWall.Clock();
+	for (int sideIndex : SeenSides.Get())
+		level.levelMesh->DrawSide(state, sideIndex, drawType, noFragmentShader);
+	RenderWall.Unclock();
+}
+
+void HWDrawInfo::DrawSeenFlats(FRenderState& state, LevelMeshDrawType drawType, bool noFragmentShader)
+{
+	RenderFlat.Clock();
+	for (int sectorIndex : SeenSectors.Get())
+		level.levelMesh->DrawSector(state, sectorIndex, drawType, noFragmentShader);
+	RenderFlat.Unclock();
 }
 
 //-----------------------------------------------------------------------------
@@ -804,6 +859,11 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 	state.EnableBrightmap(true);
 	drawlists[GLDL_TRANSLUCENTBORDER].Draw(this, state, true);
 	state.SetDepthMask(false);
+
+	// To do: this needs to be sorted
+	state.ApplyLevelMesh();
+	DrawSeenSides(state, LevelMeshDrawType::Translucent, false);
+	DrawSeenFlats(state, LevelMeshDrawType::Translucent, false);
 
 	drawlists[GLDL_TRANSLUCENT].DrawSorted(this, state);
 	state.EnableBrightmap(false);
@@ -1292,8 +1352,8 @@ void HWDrawInfo::ProcessScene(bool toscreen, FRenderState& state)
 	drawctx->portalState.BeginScene();
 
 	int mapsection = Level->PointInRenderSubsector(Viewpoint.Pos)->mapsection;
-	if (Viewpoint.IsAllowedOoB())
-		mapsection = Level->PointInRenderSubsector(Viewpoint.camera->Pos())->mapsection;
+	if (Viewpoint.IsAllowedOoB() || Viewpoint.IsOrtho())
+		mapsection = Level->PointInRenderSubsector(Viewpoint.OffPos)->mapsection;
 	CurrentMapSections.Set(mapsection);
 	DrawScene(toscreen ? DM_MAINVIEW : DM_OFFSCREEN, state);
 

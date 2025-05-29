@@ -28,7 +28,10 @@ struct DoomSurfaceInfo
 	side_t* Side = nullptr;
 	sector_t* ControlSector = nullptr;
 
+	int LightListSection = 0;
+
 	int NextSurface = -1;
+	int NextSubsectorSurface = -1;
 };
 
 struct GeometryFreeInfo
@@ -51,14 +54,16 @@ struct DrawRangeInfo
 {
 	int PipelineID = 0;
 	LevelMeshDrawType DrawType = {};
-	int DrawIndexStart = 0;
-	int DrawIndexCount = 0;
+	int IndexStart = 0;
+	int IndexCount = 0;
 };
 
 enum SurfaceUpdateType
 {
 	None,
-	LightsOnly,
+	LightLevel,
+	Shadows,
+	LightList,
 	Full
 };
 
@@ -102,9 +107,12 @@ public:
 
 	void ProcessDecals(HWDrawInfo* drawinfo, FRenderState& state);
 
+	void DrawSector(FRenderState& renderstate, int sectorIndex, LevelMeshDrawType drawType, bool noFragmentShader);
+	void DrawSide(FRenderState& renderstate, int sideIndex, LevelMeshDrawType drawType, bool noFragmentShader);
+	TArray<HWWall>& GetSidePortals(int sideIndex);
+
 	TArray<int> SideDecals;
 	TArray<int> SidePortals;
-	TArray<HWWall*> WallPortals;
 
 	TArray<int> sectorGroup; // index is sector, value is sectorGroup
 	TArray<int> sectorPortals[2]; // index is sector+plane, value is index into the portal list
@@ -125,6 +133,8 @@ public:
 	void OnSectorLightChanged(sector_t* sector) override;
 	void OnSectorLightThinkerCreated(sector_t* sector, DLighting* lightthinker) override;
 	void OnSectorLightThinkerDestroyed(sector_t* sector, DLighting* lightthinker) override;
+	void OnSectorLightListChanged(sector_t* sector) override;
+	void OnSideLightListChanged(side_t* side) override;
 
 	void Reset(const LevelMeshLimits& limits) override
 	{
@@ -148,8 +158,17 @@ private:
 
 	void CreateSurfaces(FLevelLocals& doomMap);
 
+	void UpdateLightShadows(sector_t* sector);
+	void UpdateLightShadows(FDynamicLight* light);
+
 	void UpdateSide(unsigned int sideIndex, SurfaceUpdateType updateType);
 	void UpdateFlat(unsigned int sectorIndex, SurfaceUpdateType updateType);
+
+	void UpdateSideShadows(FLevelLocals& doomMap, unsigned int sideIndex);
+	void UpdateFlatShadows(FLevelLocals& doomMap, unsigned int sectorIndex);
+
+	void UpdateSideLightList(FLevelLocals& doomMap, unsigned int sideIndex);
+	void UpdateFlatLightList(FLevelLocals& doomMap, unsigned int sectorIndex);
 
 	void CreateSide(FLevelLocals& doomMap, unsigned int sideIndex);
 	void CreateFlat(FLevelLocals& doomMap, unsigned int sectorIndex);
@@ -160,13 +179,11 @@ private:
 	void FreeSide(FLevelLocals& doomMap, unsigned int sideIndex);
 	void FreeFlat(FLevelLocals& doomMap, unsigned int sectorIndex);
 
-	void UpdateWallPortals();
-
 	void SetSubsectorLightmap(int surfaceIndex);
 	void SetSideLightmap(int surfaceIndex);
 
 	void CreateWallSurface(side_t* side, HWWallDispatcher& disp, MeshBuilder& state, TArray<HWWall>& list, LevelMeshDrawType drawType, bool translucent, unsigned int sectorIndex, const LightListAllocInfo& lightlist);
-	void CreateFlatSurface(HWFlatDispatcher& disp, MeshBuilder& state, TArray<HWFlat>& list, LevelMeshDrawType drawType, bool translucent, unsigned int sectorIndex, const LightListAllocInfo& lightlist);
+	void CreateFlatSurface(HWFlatDispatcher& disp, MeshBuilder& state, TArray<HWFlat>& list, LevelMeshDrawType drawType, bool translucent, unsigned int sectorIndex, const LightListAllocInfo& lightlist, int lightlistSection);
 
 	BBox GetBoundsFromSurface(const LevelMeshSurface& surface) const;
 
@@ -181,20 +198,27 @@ private:
 	void CopyToMeshLight(FDynamicLight* light, LevelMeshLight& meshlight, int portalgroup);
 
 	void AddToDrawList(TArray<DrawRangeInfo>& drawRanges, int pipelineID, int indexStart, int indexCount, LevelMeshDrawType drawType);
-	void RemoveFromDrawList(const TArray<DrawRangeInfo>& drawRanges);
-	void SortDrawLists();
 
 	void UploadDynLights(FLevelLocals& doomMap);
+
+	void ReleaseTiles(int surfaceIndex);
+
+	void BuildSideVisibilityLists(FLevelLocals& doomMap);
+	void BuildSubsectorVisibilityLists(FLevelLocals& doomMap);
 
 	TArray<DoomSurfaceInfo> DoomSurfaceInfos;
 
 	TArray<SideSurfaceBlock> Sides;
 	TArray<FlatSurfaceBlock> Flats;
+	TArray<int> SubsectorSurfaces;
 	TArray<side_t*> PolySides;
 
 	TArray<int> SideUpdateList;
 	TArray<int> FlatUpdateList;
 
-	std::map<LightmapTileBinding, int> bindings;
+	TArray<TArray<int>> VisibleSides;
+	TArray<TArray<int>> VisibleSubsectors;
+
+	std::map<LightmapTileBinding, int> TileBindings;
 	MeshBuilder state;
 };
