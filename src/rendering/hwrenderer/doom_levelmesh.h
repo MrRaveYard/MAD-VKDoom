@@ -52,8 +52,8 @@ struct GeometryFreeInfo
 
 struct DrawRangeInfo
 {
-	int PipelineID = 0;
 	LevelMeshDrawType DrawType = {};
+	int PipelineID = 0;
 	int IndexStart = 0;
 	int IndexCount = 0;
 };
@@ -91,6 +91,40 @@ struct FlatSurfaceBlock
 	TArray<LightListAllocInfo> Lights;
 };
 
+enum class LevelMeshDrawType
+{
+	Opaque,
+	Masked,
+	Portal,
+	Translucent,
+	NumDrawTypes
+};
+
+class LevelMeshDrawLists
+{
+public:
+	TArray<TArray<MeshBufferRange>> List[static_cast<int>(LevelMeshDrawType::NumDrawTypes)];
+
+	void Clear()
+	{
+		for (auto& l : List)
+		{
+			for (auto& p : l)
+			{
+				p.Clear();
+			}
+		}
+	}
+
+	void Add(LevelMeshDrawType drawType, int pipelineID, const MeshBufferRange& range)
+	{
+		int listIndex = static_cast<int>(drawType);
+		if (pipelineID >= (int)List[listIndex].Size())
+			List[listIndex].Resize(pipelineID + 1);
+		List[listIndex][pipelineID].Push(range);
+	}
+};
+
 class DoomLevelMesh : public LevelMesh, public UpdateLevelMesh
 {
 public:
@@ -107,8 +141,9 @@ public:
 
 	void ProcessDecals(HWDrawInfo* drawinfo, FRenderState& state);
 
-	void DrawSector(FRenderState& renderstate, int sectorIndex, LevelMeshDrawType drawType, bool noFragmentShader);
-	void DrawSide(FRenderState& renderstate, int sideIndex, LevelMeshDrawType drawType, bool noFragmentShader);
+	void AddSectorsToDrawLists(const TArray<int>& sectors, LevelMeshDrawLists& lists);
+	void AddSidesToDrawLists(const TArray<int>& sides, LevelMeshDrawLists& lists);
+
 	TArray<HWWall>& GetSidePortals(int sideIndex);
 
 	TArray<int> SideDecals;
@@ -197,7 +232,7 @@ private:
 	void UpdateLight(FDynamicLight* light);
 	void CopyToMeshLight(FDynamicLight* light, LevelMeshLight& meshlight, int portalgroup);
 
-	void AddToDrawList(TArray<DrawRangeInfo>& drawRanges, int pipelineID, int indexStart, int indexCount, LevelMeshDrawType drawType);
+	void AddToDrawList(TArray<DrawRangeInfo>& drawRanges, LevelMeshDrawType drawType, int pipelineID, int indexStart, int indexCount);
 
 	void UploadDynLights(FLevelLocals& doomMap);
 

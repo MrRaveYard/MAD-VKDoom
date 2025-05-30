@@ -50,11 +50,19 @@ void HWVisibleSet::FindPVS(HWDrawInfo* di, int sliceIndex, int sliceCount)
 	Level = di->Level;
 	Viewpoint = di->Viewpoint;
 	in_area = di->in_area;
+	mClipPortal = di->mClipPortal;
+
+	VSMatrix m = di->VPUniforms.mProjectionMatrix;
+	m.multMatrix(di->VPUniforms.mViewMatrix);
+	ClipFrustum.Set(m, Viewpoint.Pos);
+
 	CurrentMapSections = &di->CurrentMapSections;
 	no_renderflags = TArrayView<uint8_t>(di->no_renderflags.data(), di->no_renderflags.size());
-	section_renderflags = di->section_renderflags; // To do: RenderBSP modifies this
-	ss_renderflags = di->ss_renderflags; // To do: RenderBSP modifies this
-	mClipPortal = di->mClipPortal;
+
+	section_renderflags.Resize(Level->sections.allSections.Size());
+	ss_renderflags.Resize(Level->subsectors.Size());
+	memset(&section_renderflags[0], 0, Level->sections.allSections.Size() * sizeof(section_renderflags[0]));
+	memset(&ss_renderflags[0], 0, Level->subsectors.Size() * sizeof(ss_renderflags[0]));
 
 	drawctx.staticClipper.Clear();
 	mClipper = &drawctx.staticClipper;
@@ -377,7 +385,7 @@ void HWVisibleSet::AddLine(seg_t* seg, bool portalclip)
 
 			backsector = hw_FakeFlat(&drawctx, seg->backsector, in_area, true);
 
-			if (hw_CheckClip(seg->sidedef, currentsector, backsector))
+			if (hw_CheckClip(seg->sidedef, currentsector, backsector, &ClipFrustum))
 			{
 				clipper.SafeAddClipRange(startAngle, endAngle);
 			}
@@ -648,4 +656,95 @@ void HWVisibleSetThreads::WorkerMain(int sliceIndex)
 		}
 		WorkCondvar.wait(lock);
 	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+
+void CameraFrustum::Set(const VSMatrix& worldToProjection, const DVector3& viewpoint)
+{
+	Planes[0] = NearFrustum(worldToProjection);
+	Planes[1] = LeftFrustum(worldToProjection);
+	Planes[2] = TopFrustum(worldToProjection);
+	Planes[3] = RightFrustum(worldToProjection);
+	Planes[4] = BottomFrustum(worldToProjection);
+	Planes[5] = FarFrustum(worldToProjection);
+
+	// Move back near plane to be slightly behind the camera position
+	Planes[0].W = -(Planes[0].XYZ() | viewpoint.ToXZY() - 1.0);
+
+	for (int i = 0; i < 6; i++)
+	{
+		AbsPlaneNormals[i] = Planes[i].XYZ();
+		AbsPlaneNormals[i].X = std::abs(AbsPlaneNormals[i].X);
+		AbsPlaneNormals[i].Y = std::abs(AbsPlaneNormals[i].Y);
+		AbsPlaneNormals[i].Z = std::abs(AbsPlaneNormals[i].Z);
+	}
+}
+
+DVector4 CameraFrustum::LeftFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] + matrix.mMatrix[0 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] + matrix.mMatrix[0 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] + matrix.mMatrix[0 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] + matrix.mMatrix[0 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::RightFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] - matrix.mMatrix[0 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] - matrix.mMatrix[0 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] - matrix.mMatrix[0 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] - matrix.mMatrix[0 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::TopFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] - matrix.mMatrix[1 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] - matrix.mMatrix[1 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] - matrix.mMatrix[1 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] - matrix.mMatrix[1 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::BottomFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] + matrix.mMatrix[1 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] + matrix.mMatrix[1 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] + matrix.mMatrix[1 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] + matrix.mMatrix[1 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::NearFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] + matrix.mMatrix[2 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] + matrix.mMatrix[2 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] + matrix.mMatrix[2 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] + matrix.mMatrix[2 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::FarFrustum(const VSMatrix& matrix)
+{
+	return Normalize(DVector4(
+		matrix.mMatrix[3 + 0 * 4] - matrix.mMatrix[2 + 0 * 4],
+		matrix.mMatrix[3 + 1 * 4] - matrix.mMatrix[2 + 1 * 4],
+		matrix.mMatrix[3 + 2 * 4] - matrix.mMatrix[2 + 2 * 4],
+		matrix.mMatrix[3 + 3 * 4] - matrix.mMatrix[2 + 3 * 4]));
+}
+
+DVector4 CameraFrustum::Normalize(DVector4 v)
+{
+	double length = std::sqrt(v.XYZ() | v.XYZ());
+	if (length > DBL_EPSILON)
+	{
+		double rcpLength = 1.0 / length;
+		v.X *= rcpLength;
+		v.Y *= rcpLength;
+		v.Z *= rcpLength;
+		v.W *= rcpLength;
+	}
+	return v;
 }

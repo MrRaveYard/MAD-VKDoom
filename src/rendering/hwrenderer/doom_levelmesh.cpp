@@ -330,24 +330,24 @@ void DoomLevelMesh::SetLimits(FLevelLocals& doomMap)
 
 CVAR(Bool, lm_cpu_levelmesh_update, true, CVAR_NOSAVE);
 
-void DoomLevelMesh::DrawSector(FRenderState& renderstate, int sectorIndex, LevelMeshDrawType drawType, bool noFragmentShader)
+void DoomLevelMesh::AddSectorsToDrawLists(const TArray<int>& sectors, LevelMeshDrawLists& lists)
 {
-	for (const DrawRangeInfo& di : Flats[sectorIndex].DrawRanges)
+	for (int sectorIndex : sectors)
 	{
-		if (di.DrawType == drawType)
+		for (const DrawRangeInfo& di : Flats[sectorIndex].DrawRanges)
 		{
-			renderstate.DrawLevelMeshRange(di.IndexStart, di.IndexCount, di.PipelineID, drawType, noFragmentShader);
+			lists.Add(di.DrawType, di.PipelineID, { di.IndexStart, di.IndexStart + di.IndexCount });
 		}
 	}
 }
 
-void DoomLevelMesh::DrawSide(FRenderState& renderstate, int sideIndex, LevelMeshDrawType drawType, bool noFragmentShader)
+void DoomLevelMesh::AddSidesToDrawLists(const TArray<int>& sides, LevelMeshDrawLists& lists)
 {
-	for (const DrawRangeInfo& di : Sides[sideIndex].DrawRanges)
+	for (int sideIndex : sides)
 	{
-		if (di.DrawType == drawType)
+		for (const DrawRangeInfo& di : Sides[sideIndex].DrawRanges)
 		{
-			renderstate.DrawLevelMeshRange(di.IndexStart, di.IndexCount, di.PipelineID, drawType, noFragmentShader);
+			lists.Add(di.DrawType, di.PipelineID, { di.IndexStart, di.IndexStart + di.IndexCount });
 		}
 	}
 }
@@ -1396,16 +1396,16 @@ void DoomLevelMesh::CreateWallSurface(side_t* side, HWWallDispatcher& disp, Mesh
 		Sides[sideIndex].Geometries.Push(ginfo);
 		Sides[sideIndex].Uniforms.Push(uinfo);
 
-		AddToDrawList(Sides[sideIndex].DrawRanges, pipelineID, ginfo.IndexStart, ginfo.IndexCount, drawType);
+		AddToDrawList(Sides[sideIndex].DrawRanges, drawType, pipelineID, ginfo.IndexStart, ginfo.IndexCount);
 	}
 }
 
-void DoomLevelMesh::AddToDrawList(TArray<DrawRangeInfo>& drawRanges, int pipelineID, int indexStart, int indexCount, LevelMeshDrawType drawType)
+void DoomLevelMesh::AddToDrawList(TArray<DrawRangeInfo>& drawRanges, LevelMeshDrawType drawType, int pipelineID, int indexStart, int indexCount)
 {
 	DrawRangeInfo info;
+	info.DrawType = drawType;
 	info.IndexStart = indexStart;
 	info.IndexCount = indexCount;
-	info.DrawType = drawType;
 	info.PipelineID = pipelineID;
 	drawRanges.Push(info);
 }
@@ -1681,7 +1681,7 @@ void DoomLevelMesh::CreateFlatSurface(HWFlatDispatcher& disp, MeshBuilder& state
 			SetSubsectorLightmap(sinfo.Index);
 		}
 
-		AddToDrawList(Flats[sectorIndex].DrawRanges, pipelineID, ginfo.IndexStart, ginfo.IndexCount, drawType);
+		AddToDrawList(Flats[sectorIndex].DrawRanges, drawType, pipelineID, ginfo.IndexStart, ginfo.IndexCount);
 	}
 }
 
