@@ -87,6 +87,7 @@ struct sun_trace_cache_t
 	bool SunResult = false;
 };
 
+
 #define TRACELIGHT_CACHE_MAX_VALUE_R ((1 << 10) - 1)
 #define TRACELIGHT_CACHE_MAX_VALUE_G ((1 << 10) - 1)
 #define TRACELIGHT_CACHE_MAX_VALUE_B ((1 << 10) - 1)
@@ -177,6 +178,14 @@ public:
 
 		return entries[index < probeCount ? index : 0u];
 	}
+};
+
+enum FShadowCastingTypes
+{
+	SHADOWCASTING_None = 0,
+	SHADOWCASTING_Static,
+	// Not yet implemented.
+	//SHADOWCASTING_Dynamic
 };
 
 extern thread_local FDynLightData lightdata;

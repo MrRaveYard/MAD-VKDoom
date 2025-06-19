@@ -7,12 +7,7 @@ LevelMesh::LevelMesh()
 {
 	Lightmap.AtlasPacker = std::make_unique<RectPacker>(Lightmap.TextureSize, Lightmap.TextureSize, 0);
 
-	LevelMeshLimits limits;
-	limits.MaxVertices = 12;
-	limits.MaxIndexes = 3 * 4;
-	limits.MaxSurfaces = 1;
-	limits.MaxUniforms = 1;
-	Reset(limits);
+	Reset();
 
 	// Default portal
 	LevelMeshPortal portal;
@@ -27,31 +22,31 @@ void LevelMesh::CreateCollision()
 	Collision = std::make_unique<CPUAccelStruct>(this);
 }
 
-void LevelMesh::Reset(const LevelMeshLimits& limits)
+void LevelMesh::Reset()
 {
-	Mesh.Vertices.Resize(limits.MaxVertices);
-	Mesh.UniformIndexes.Resize(limits.MaxVertices);
+	Mesh.Vertices.Clear();
+	Mesh.UniformIndexes.Clear();
 
-	Mesh.Surfaces.Resize(limits.MaxSurfaces);
-	Mesh.Uniforms.Resize(limits.MaxUniforms);
-	Mesh.LightUniforms.Resize(limits.MaxUniforms);
-	Mesh.Materials.Resize(limits.MaxUniforms);
+	Mesh.Surfaces.Clear();
+	Mesh.Uniforms.Clear();
+	Mesh.LightUniforms.Clear();
+	Mesh.Materials.Clear();
 
 	int maxLights = 20'000;
 
 	Mesh.Lights.Resize(maxLights);
-	Mesh.LightIndexes.Resize(limits.MaxSurfaces * 10);
+	Mesh.LightIndexes.Clear();
 	Mesh.DynLights.Resize((sizeof(int) * 4) + MAX_LIGHT_DATA * sizeof(FDynLightInfo));
 
-	Mesh.Indexes.Resize(limits.MaxIndexes);
-	Mesh.SurfaceIndexes.Resize(limits.MaxIndexes / 3 + 1);
+	Mesh.Indexes.Clear();
+	Mesh.SurfaceIndexes.Clear();
 
-	FreeLists.Vertex.Reset(limits.MaxVertices);
-	FreeLists.Index.Reset(limits.MaxIndexes);
-	FreeLists.Uniforms.Reset(limits.MaxUniforms);
-	FreeLists.Surface.Reset(limits.MaxSurfaces);
-	FreeLists.LightIndex.Reset(limits.MaxSurfaces * 10);
-	FreeLists.Light.Reset(maxLights);
+	FreeLists.Vertex.Reset(Mesh.Vertices.Size());
+	FreeLists.Index.Reset(Mesh.Indexes.Size());
+	FreeLists.Uniforms.Reset(Mesh.Uniforms.Size());
+	FreeLists.Surface.Reset(Mesh.Surfaces.Size());
+	FreeLists.LightIndex.Reset(Mesh.LightIndexes.Size());
+	FreeLists.Light.Reset(Mesh.Lights.Size());
 }
 
 void LevelMesh::AddEmptyMesh()
@@ -61,21 +56,23 @@ void LevelMesh::AddEmptyMesh()
 	// Default empty mesh (we can't make it completely empty since vulkan doesn't like that)
 	float minval = -100001.0f;
 	float maxval = -100000.0f;
-	ginfo.Vertices[0] = { minval, minval, minval };
-	ginfo.Vertices[1] = { maxval, minval, minval };
-	ginfo.Vertices[2] = { maxval, maxval, minval };
-	ginfo.Vertices[3] = { minval, minval, minval };
-	ginfo.Vertices[4] = { minval, maxval, minval };
-	ginfo.Vertices[5] = { maxval, maxval, minval };
-	ginfo.Vertices[6] = { minval, minval, maxval };
-	ginfo.Vertices[7] = { maxval, minval, maxval };
-	ginfo.Vertices[8] = { maxval, maxval, maxval };
-	ginfo.Vertices[9] = { minval, minval, maxval };
-	ginfo.Vertices[10] = { minval, maxval, maxval };
-	ginfo.Vertices[11] = { maxval, maxval, maxval };
+	auto vertices = GetVertices(ginfo);
+	vertices[0] = { minval, minval, minval };
+	vertices[1] = { maxval, minval, minval };
+	vertices[2] = { maxval, maxval, minval };
+	vertices[3] = { minval, minval, minval };
+	vertices[4] = { minval, maxval, minval };
+	vertices[5] = { maxval, maxval, minval };
+	vertices[6] = { minval, minval, maxval };
+	vertices[7] = { maxval, minval, maxval };
+	vertices[8] = { maxval, maxval, maxval };
+	vertices[9] = { minval, minval, maxval };
+	vertices[10] = { minval, maxval, maxval };
+	vertices[11] = { maxval, maxval, maxval };
 
+	auto indexes = GetIndexes(ginfo);
 	for (int i = 0; i < 3 * 4; i++)
-		ginfo.Indexes[i] = i;
+		indexes[i] = i;
 
 	Mesh.IndexCount = ginfo.IndexCount;
 
@@ -206,12 +203,24 @@ void MeshBufferAllocator::Reset(int size)
 {
 	TotalSize = size;
 	Unused.Clear();
-	Unused.Push({ 0, size });
+	if (size > 0)
+		Unused.Push({ 0, size });
 }
 
-int MeshBufferAllocator::GetTotalSize() const
+void MeshBufferAllocator::Grow(int amount)
 {
-	return TotalSize;
+	amount = (amount + TotalSize) * 2;
+
+	if (Unused.Size() != 0 && Unused.back().End == TotalSize)
+	{
+		TotalSize += amount;
+		Unused.back().End = TotalSize;
+	}
+	else
+	{
+		Unused.Push({ TotalSize, TotalSize + amount });
+		TotalSize += amount;
+	}
 }
 
 int MeshBufferAllocator::GetUsedSize() const
@@ -242,7 +251,7 @@ int MeshBufferAllocator::Alloc(int count)
 		}
 	}
 
-	I_FatalError("Could not find space in level mesh buffer");
+	return -1;
 }
 
 void MeshBufferAllocator::Free(int position, int count)

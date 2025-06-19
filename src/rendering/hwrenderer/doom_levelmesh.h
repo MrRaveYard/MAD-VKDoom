@@ -19,6 +19,13 @@ struct HWDrawInfo;
 class DoomLevelMesh;
 class MeshBuilder;
 
+struct HWMissing
+{
+	side_t* side;
+	subsector_t* sub;
+	double plane;
+};
+
 struct DoomSurfaceInfo
 {
 	DoomLevelMeshSurfaceType Type = ST_NONE;
@@ -73,9 +80,11 @@ struct SideSurfaceBlock
 	TArray<GeometryFreeInfo> Geometries;
 	TArray<UniformsAllocInfo> Uniforms;
 	TArray<HWWall> WallPortals;
+	TArray<HWMissing> MissingUpper;
+	TArray<HWMissing> MissingLower;
 	TArray<HWDecalCreateInfo> Decals;
-	bool InSidePortalsList = false;
 	bool InSideDecalsList = false;
+	bool NeedsImmediateRendering = false;
 	TArray<DrawRangeInfo> DrawRanges;
 	SurfaceUpdateType UpdateType = SurfaceUpdateType::None;
 	LightListAllocInfo Lights;
@@ -95,8 +104,10 @@ enum class LevelMeshDrawType
 {
 	Opaque,
 	Masked,
+	MaskedOffset,
 	Portal,
 	Translucent,
+	TranslucentBorder,
 	NumDrawTypes
 };
 
@@ -131,6 +142,14 @@ public:
 	DoomLevelMesh(FLevelLocals &doomMap);
 	~DoomLevelMesh();
 
+	void FullRefresh() override
+	{
+		for (unsigned int i = 0; i < Sides.Size(); i++)
+			UpdateSide(i, SurfaceUpdateType::Full);
+		for (unsigned int i = 0; i < Flats.Size(); i++)
+			UpdateFlat(i, SurfaceUpdateType::Full);
+	}
+
 	void PrintSurfaceInfo(const LevelMeshSurface* surface);
 
 	void BeginFrame(FLevelLocals& doomMap);
@@ -139,15 +158,10 @@ public:
 
 	void BuildSectorGroups(const FLevelLocals& doomMap);
 
-	void ProcessDecals(HWDrawInfo* drawinfo, FRenderState& state);
-
 	void AddSectorsToDrawLists(const TArray<int>& sectors, LevelMeshDrawLists& lists);
-	void AddSidesToDrawLists(const TArray<int>& sides, LevelMeshDrawLists& lists);
+	void AddSidesToDrawLists(const TArray<int>& sides, LevelMeshDrawLists& lists, HWDrawInfo* di, FRenderState& state);
 
 	TArray<HWWall>& GetSidePortals(int sideIndex);
-
-	TArray<int> SideDecals;
-	TArray<int> SidePortals;
 
 	TArray<int> sectorGroup; // index is sector, value is sectorGroup
 	TArray<int> sectorPortals[2]; // index is sector+plane, value is index into the portal list
@@ -171,10 +185,10 @@ public:
 	void OnSectorLightListChanged(sector_t* sector) override;
 	void OnSideLightListChanged(side_t* side) override;
 
-	void Reset(const LevelMeshLimits& limits) override
+	void Reset() override
 	{
-		LevelMesh::Reset(limits);
-		DoomSurfaceInfos.Resize(limits.MaxSurfaces);
+		LevelMesh::Reset();
+		DoomSurfaceInfos.Clear();
 	}
 
 	void GetVisibleSurfaces(LightmapTile* tile, TArray<int>& outSurfaces) override;
@@ -217,7 +231,9 @@ private:
 	void SetSubsectorLightmap(int surfaceIndex);
 	void SetSideLightmap(int surfaceIndex);
 
-	void CreateWallSurface(side_t* side, HWWallDispatcher& disp, MeshBuilder& state, TArray<HWWall>& list, LevelMeshDrawType drawType, bool translucent, unsigned int sectorIndex, const LightListAllocInfo& lightlist);
+	void CreateModelSurfaces(AActor* thing, FSpriteModelFrame* modelframe);
+
+	void CreateWallSurface(side_t* side, HWWallDispatcher& disp, MeshBuilder& state, TArray<HWWall>& list, LevelMeshDrawType drawType, unsigned int sectorIndex, const LightListAllocInfo& lightlist);
 	void CreateFlatSurface(HWFlatDispatcher& disp, MeshBuilder& state, TArray<HWFlat>& list, LevelMeshDrawType drawType, bool translucent, unsigned int sectorIndex, const LightListAllocInfo& lightlist, int lightlistSection);
 
 	BBox GetBoundsFromSurface(const LevelMeshSurface& surface) const;
@@ -240,6 +256,14 @@ private:
 
 	void BuildSideVisibilityLists(FLevelLocals& doomMap);
 	void BuildSubsectorVisibilityLists(FLevelLocals& doomMap);
+
+	DoomSurfaceInfo* GetDoomSurface(const SurfaceAllocInfo& sinfo)
+	{
+		size_t i = (size_t)sinfo.Index;
+		if (DoomSurfaceInfos.size() <= i)
+			DoomSurfaceInfos.resize(i + 1);
+		return &DoomSurfaceInfos[i];
+	}
 
 	TArray<DoomSurfaceInfo> DoomSurfaceInfos;
 

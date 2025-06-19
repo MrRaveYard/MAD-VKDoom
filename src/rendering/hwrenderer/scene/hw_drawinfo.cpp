@@ -441,17 +441,26 @@ HWDecal *HWDrawInfo::AddDecal(bool onmirror)
 
 void HWDrawInfo::RenderPVS(bool drawpsprites, FRenderState& state)
 {
+	SeenSectors.Clear();
+	SeenSides.Clear();
+	SeenSubsectors.Clear();
+	SeenHackedSubsectors.Clear();
+	SeenSubsectorPortals.Clear();
+	SeenFlatsDrawLists.Clear();
+	SeenSidesDrawLists.Clear();
+
 	if (Viewpoint.IsOrtho() || !(gl_levelmesh && !outer))
 	{
 		RenderBSP(Level->HeadNode(), drawpsprites, state);
 	}
 	else
 	{
-		// Anything outside the BSP using this?
 		viewx = FLOAT2FIXED(Viewpoint.Pos.X);
 		viewy = FLOAT2FIXED(Viewpoint.Pos.Y);
 		multithread = false;
 		uselevelmesh = true;
+
+		validcount++;	// used for processing sidedefs only once by the renderer.
 
 		Bsp.Clock();
 
@@ -476,6 +485,39 @@ void HWDrawInfo::RenderPVS(bool drawpsprites, FRenderState& state)
 			SubsectorHackInfo sh = { &Level->subsectors[subIndex], 0 };
 			SubsectorHacks.Push(sh);
 		}
+
+		for (int subIndex : SeenSubsectorPortals.Get())
+		{
+			subsector_t* sub = &Level->subsectors[subIndex];
+			sector_t* sector = sub->sector;
+			auto fakesector = hw_FakeFlat(drawctx, sector, in_area, false);
+
+			FSectorPortalGroup* portal = fakesector->GetPortalGroup(sector_t::ceiling);
+			if (portal != nullptr)
+			{
+				AddSubsectorToPortal(portal, sub);
+			}
+
+			portal = fakesector->GetPortalGroup(sector_t::floor);
+			if (portal != nullptr)
+			{
+				AddSubsectorToPortal(portal, sub);
+			}
+		}
+
+		for (int sideIndex : SeenSides.Get())
+		{
+			for (HWWall& portal : level.levelMesh->GetSidePortals(sideIndex))
+			{
+				PutWallPortal(portal, state);
+			}
+		}
+
+		if (gl_levelmesh)
+			level.levelMesh->CurFrameStats.Portals++;
+
+		level.levelMesh->AddSectorsToDrawLists(SeenSectors.Get(), SeenFlatsDrawLists);
+		level.levelMesh->AddSidesToDrawLists(SeenSides.Get(), SeenSidesDrawLists, this, state);
 
 		if (gl_render_things)
 		{
@@ -510,6 +552,43 @@ void HWDrawInfo::RenderPVS(bool drawpsprites, FRenderState& state)
 	}
 }
 
+void HWDrawInfo::ProcessSeg(seg_t* seg, FRenderState& state)
+{
+	subsector_t* sub = seg->Subsector;
+	sector_t* front, * back;
+	front = hw_FakeFlat(drawctx, sub->sector, in_area, false);
+	auto backsector = seg->backsector;
+	if (!backsector && seg->linedef->isVisualPortal() && seg->sidedef == seg->linedef->sidedef[0]) // For one-sided portals use the portal's destination sector as backsector.
+	{
+		auto portal = seg->linedef->getPortal();
+		backsector = portal->mDestination->frontsector;
+		back = hw_FakeFlat(drawctx, backsector, in_area, true);
+		if (front->floorplane.isSlope() || front->ceilingplane.isSlope() || back->floorplane.isSlope() || back->ceilingplane.isSlope())
+		{
+			// Having a one-sided portal like this with slopes is too messy so let's ignore that case.
+			back = nullptr;
+		}
+	}
+	else if (backsector)
+	{
+		if (front->sectornum == backsector->sectornum || (seg->sidedef->Flags & WALLF_POLYOBJ))
+		{
+			back = front;
+		}
+		else
+		{
+			back = hw_FakeFlat(drawctx, backsector, in_area, true);
+		}
+	}
+	else back = nullptr;
+
+	HWMeshHelper result;
+	HWWallDispatcher disp(this);
+	HWWall wall;
+	wall.sub = sub;
+	wall.Process(&disp, state, seg, front, back);
+}
+
 //-----------------------------------------------------------------------------
 //
 // CreateScene
@@ -542,28 +621,6 @@ void HWDrawInfo::CreateScene(bool drawpsprites, FRenderState& state)
 
 	RenderPVS(drawpsprites, state);
 
-	if (uselevelmesh)
-	{
-		level.levelMesh->CurFrameStats.Portals++;
-
-		for (int sideIndex : SeenSides.Get())
-		{
-			for (HWWall& portal : level.levelMesh->GetSidePortals(sideIndex))
-			{
-				// sector portals not handled yet by PutWallPortal
-				if (portal.portaltype != PORTALTYPE_SECTORSTACK)
-				{
-					PutWallPortal(portal, state);
-				}
-			}
-		}
-	}
-
-	SeenFlatsDrawLists.Clear();
-	SeenSidesDrawLists.Clear();
-	level.levelMesh->AddSectorsToDrawLists(SeenSectors.Get(), SeenFlatsDrawLists);
-	level.levelMesh->AddSidesToDrawLists(SeenSides.Get(), SeenSidesDrawLists);
-
 	// And now the crappy hacks that have to be done to avoid rendering anomalies.
 	// These cannot be multithreaded when the time comes because all these depend
 	// on the global 'validcount' variable.
@@ -594,20 +651,24 @@ void HWDrawInfo::PutWallPortal(HWWall wall, FRenderState& state)
 	int portaltype = wall.portaltype;
 	int portalplane = wall.portalplane;
 
-	HWSkyInfo skyinfo;
 	if (portaltype == PORTALTYPE_SKY)
 	{
+		HWSkyInfo skyinfo;
 		skyinfo.init(this, wall.frontsector, sector_t::ceiling, wall.frontsector->skytransfer, wall.Colormap.FadeColor);
 		wall.sky = &skyinfo;
 		wall.PutPortal(&ddi, state, portaltype, portalplane);
 	}
 	else if (portaltype == PORTALTYPE_SECTORSTACK)
 	{
-		// To do: this seems to need AddSubsectorToPortal?
+		auto glport = wall.frontsector->GetPortalGroup(portalplane);
+		if (glport)
+		{
+			if (wall.frontsector->PortalBlocksView(portalplane)) return;
+			if (screen->instack[1 - portalplane]) return;
 
-		//if (screen->instack[1 - portalplane])
-		//	return;
-		//wall.PutPortal(&ddi, state, portaltype, portalplane);
+			wall.portal = glport;
+			wall.PutPortal(&ddi, state, portaltype, portalplane);
+		}
 	}
 	else if (portaltype == PORTALTYPE_PLANEMIRROR)
 	{
@@ -861,6 +922,9 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 
 	state.EnableBrightmap(true);
 	drawlists[GLDL_TRANSLUCENTBORDER].Draw(this, state, true);
+	state.ApplyLevelMesh();
+	state.DrawLevelMeshList(SeenSidesDrawLists.List[static_cast<int>(LevelMeshDrawType::TranslucentBorder)], false, false);
+	state.DrawLevelMeshList(SeenFlatsDrawLists.List[static_cast<int>(LevelMeshDrawType::TranslucentBorder)], false, false);
 	state.SetDepthMask(false);
 
 	// To do: this needs to be sorted
