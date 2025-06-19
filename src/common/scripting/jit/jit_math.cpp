@@ -156,12 +156,9 @@ void JitCompiler::EmitADD_RR()
 
 void JitCompiler::EmitADD_RK()
 {
-	if (konstd[C] != 0)
-	{
-		if (A != B)
-			cc.mov(regD[A], regD[B]);
-		cc.add(regD[A], konstd[C]);
-	}
+	if (A != B)
+		cc.mov(regD[A], regD[B]);
+	cc.add(regD[A], konstd[C]);
 }
 
 void JitCompiler::EmitADDI()
@@ -183,10 +180,7 @@ void JitCompiler::EmitSUB_RK()
 {
 	if (A != B)
 		cc.mov(regD[A], regD[B]);
-	if (konstd[C] != 0)
-	{
-		cc.sub(regD[A], konstd[C]);
-	}
+	cc.sub(regD[A], konstd[C]);
 }
 
 void JitCompiler::EmitSUB_KR()
@@ -206,18 +200,9 @@ void JitCompiler::EmitMUL_RR()
 
 void JitCompiler::EmitMUL_RK()
 {
-	if (konstd[C] == 0)
-	{
-		cc.xor_(regD[A], regD[A]);
-	}
-	else
-	{
-		if (A != B)
-			cc.mov(regD[A], regD[B]);
-		
-		if(konstd[C] != 1)
-			cc.imul(regD[A], konstd[C]);
-	}
+	if (A != B)
+		cc.mov(regD[A], regD[B]);
+	cc.imul(regD[A], konstd[C]);
 }
 
 void JitCompiler::EmitDIV_RR()
@@ -239,21 +224,14 @@ void JitCompiler::EmitDIV_RK()
 {
 	if (konstd[C] != 0)
 	{
-		if (konstd[C] != 1)
-		{
-			auto tmp0 = newTempInt32();
-			auto tmp1 = newTempInt32();
-			auto konstTmp = newTempIntPtr();
-			cc.mov(tmp0, regD[B]);
-			cc.cdq(tmp1, tmp0);
-			cc.mov(konstTmp, asmjit::imm_ptr(&konstd[C]));
-			cc.idiv(tmp1, tmp0, asmjit::x86::ptr(konstTmp));
-			cc.mov(regD[A], tmp0);
-		}
-		else if(A != B)
-		{
-			cc.mov(regD[A], regD[B]);
-		}
+		auto tmp0 = newTempInt32();
+		auto tmp1 = newTempInt32();
+		auto konstTmp = newTempIntPtr();
+		cc.mov(tmp0, regD[B]);
+		cc.cdq(tmp1, tmp0);
+		cc.mov(konstTmp, asmjit::imm_ptr(&konstd[C]));
+		cc.idiv(tmp1, tmp0, asmjit::x86::ptr(konstTmp));
+		cc.mov(regD[A], tmp0);
 	}
 	else
 	{
@@ -557,15 +535,9 @@ void JitCompiler::EmitABS()
 
 void JitCompiler::EmitNEG()
 {
-	if (A == B)
-	{
-		cc.neg(regD[A]);
-	}
-	else
-	{
-		cc.xor_(regD[A], regD[A]);
-		cc.sub(regD[A], regD[B]);
-	}
+	auto srcB = CheckRegD(B, A);
+	cc.xor_(regD[A], regD[A]);
+	cc.sub(regD[A], srcB);
 }
 
 void JitCompiler::EmitNOT()
@@ -578,27 +550,16 @@ void JitCompiler::EmitNOT()
 void JitCompiler::EmitEQ_R()
 {
 	EmitComparisonOpcode([&](bool check, asmjit::Label& fail, asmjit::Label& success) {
-		if (B == C)
-		{
-			if (check) cc.je(fail);
-		}
-		else
-		{
-			cc.cmp(regD[B], regD[C]);
-			if (check) cc.je(fail);
-			else       cc.jne(fail);
-		}
+		cc.cmp(regD[B], regD[C]);
+		if (check) cc.je(fail);
+		else       cc.jne(fail);
 	});
 }
 
 void JitCompiler::EmitEQ_K()
 {
 	EmitComparisonOpcode([&](bool check, asmjit::Label& fail, asmjit::Label& success) {
-		if (konstd[C] == 0)
-			cc.test(regD[B], regD[B]);
-		else
-			cc.cmp(regD[B], konstd[C]);
-
+		cc.cmp(regD[B], konstd[C]);
 		if (check) cc.je(fail);
 		else       cc.jne(fail);
 	});
@@ -1712,7 +1673,7 @@ void JitCompiler::EmitADDA_RR()
 	cc.mov(tmp, regA[B]);
 
 	// Check if zero, the first operand is zero, if it is, don't add.
-	cc.test(tmp, tmp);
+	cc.cmp(tmp, 0);
 	cc.je(label);
 
 	auto tmpptr = newTempIntPtr();
@@ -1725,33 +1686,27 @@ void JitCompiler::EmitADDA_RR()
 
 void JitCompiler::EmitADDA_RK()
 {
-	if (konstd[C] != 0)
-	{
-		auto tmp = newTempIntPtr();
-		auto label = cc.newLabel();
+	auto tmp = newTempIntPtr();
+	auto label = cc.newLabel();
 
-		cc.mov(tmp, regA[B]);
+	cc.mov(tmp, regA[B]);
 
-		// Check if zero, the first operand is zero, if it is, don't add.
-		cc.test(tmp, tmp);
-		cc.je(label);
+	// Check if zero, the first operand is zero, if it is, don't add.
+	cc.cmp(tmp, 0);
+	cc.je(label);
 
-		cc.add(tmp, konstd[C]);
+	cc.add(tmp, konstd[C]);
 
-		cc.bind(label);
-		cc.mov(regA[A], tmp);
-	}
-	else if (A != B)
-	{
-		cc.mov(regA[A], regA[B]);
-	}
+	cc.bind(label);
+	cc.mov(regA[A], tmp);
 }
 
 void JitCompiler::EmitSUBA()
 {
-	if(A != B)
-		cc.mov(regA[A], regA[B]);
-	cc.sub(regA[A], regD[C]);
+	auto tmp = newTempIntPtr();
+	cc.mov(tmp, regA[B]);
+	cc.sub(tmp, regD[C]);
+	cc.mov(regA[A], tmp);
 }
 
 void JitCompiler::EmitEQA_R()
@@ -1766,17 +1721,9 @@ void JitCompiler::EmitEQA_R()
 void JitCompiler::EmitEQA_K()
 {
 	EmitComparisonOpcode([&](bool check, asmjit::Label& fail, asmjit::Label& success) {
-		if (konsta[C].v != 0)
-		{
-			auto tmp = newTempIntPtr();
-			cc.mov(tmp, asmjit::imm_ptr(konsta[C].v));
-			cc.cmp(regA[B], tmp);
-		}
-		else
-		{
-			cc.test(regA[B], regA[B]);
-		}
-
+		auto tmp = newTempIntPtr();
+		cc.mov(tmp, asmjit::imm_ptr(konsta[C].v));
+		cc.cmp(regA[B], tmp);
 		if (check) cc.je(fail);
 		else       cc.jne(fail);
 	});
