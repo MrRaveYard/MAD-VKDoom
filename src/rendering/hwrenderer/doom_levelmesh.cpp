@@ -229,6 +229,8 @@ DVector3 RayDir(DAngle angle, DAngle pitch)
 	return DVector3{ pc * (angle.Cos()), pc * (angle.Sin()), -(pitch.Sin()) };
 }
 
+CVAR(Bool, lm_polyobjects, false, CVAR_NOSAVE);
+
 CCMD(surfaceinfo)
 {
 	if (!RequireLevelMesh()) return;
@@ -1260,6 +1262,9 @@ void DoomLevelMesh::CreateSide(FLevelLocals& doomMap, unsigned int sideIndex)
 	subsector_t* sub;
 	if (side->Flags & WALLF_POLYOBJ)
 	{
+		if(!lm_polyobjects)
+			return; // MAD-VKDoom compatibility workaround
+
 		sub = level.PointInRenderSubsector((side->V1()->fPos() + side->V2()->fPos()) * 0.5);
 		if (!sub)
 			return;
