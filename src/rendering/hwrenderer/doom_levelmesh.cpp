@@ -1317,11 +1317,8 @@ void DoomLevelMesh::CreateSide(FLevelLocals& doomMap, unsigned int sideIndex)
 
 	auto& sideBlock = Sides[sideIndex];
 
-	if ((side->Flags & WALLF_POLYOBJ) == WALLF_POLYOBJ && sideBlock.PolySegs.size() == 0)
+	if ((side->Flags & WALLF_POLYOBJ) == WALLF_POLYOBJ && (sideBlock.PolySegs.size() == 0 || !lm_polyobjects))
 		return;
-	
-	if(!lm_polyobjects)
-		return; // MAD-VKDoom compatibility workaround
 
 	HWMeshHelper result;
 	HWWallDispatcher disp(&doomMap, &result, getRealLightmode(&doomMap, true));
