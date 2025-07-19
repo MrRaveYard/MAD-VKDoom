@@ -838,7 +838,7 @@ bool HWSectorStackPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 
 void HWSectorStackPortal::DrawPortalStencil(FRenderState &state, int pass)
 {
-	if (mState->vpIsAllowedOoB)
+	if (true) // mState->vpIsAllowedOoB)
 	{
 		bool isceiling = planesused & (1 << sector_t::ceiling);
 		for (unsigned i = 0; i<subsectors.Size(); i++)
@@ -919,7 +919,7 @@ bool HWPlaneMirrorPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 
 void HWPlaneMirrorPortal::DrawPortalStencil(FRenderState &state, int pass)
 {
-	if (mState->vpIsAllowedOoB)
+	if (true) // mState->vpIsAllowedOoB)
 	{
 		bool isceiling = planesused & (1 << sector_t::ceiling);
 		for (unsigned int i = 0; i < lines.Size(); i++)

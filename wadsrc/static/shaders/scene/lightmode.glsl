@@ -52,9 +52,9 @@ vec4 getLightColor(Material material)
 
 		vec4 dynlight = uDynLightColor;
 
-		if (vLightmap.z >= 0.0)
+		if (vLightmapIndex != -1)
 		{
-			dynlight.rgb += texture(LightMap, vLightmap).rgb;
+			dynlight.rgb += texture(textures[nonuniformEXT(vLightmapIndex)], vLightmap.xy).rgb;
 		}
 
 		dynlight.rgb += ProcessSWLight(material);
@@ -103,15 +103,18 @@ vec4 getLightColor(Material material)
 		//
 		// apply lightmaps
 		//
-		if (vLightmap.z >= 0.0)
+		float sunlightAttenuation = 0.0;
+		if (vLightmapIndex != -1)
 		{
-			color.rgb += texture(LightMap, vLightmap).rgb;
+			vec4 lightmap = texture(textures[nonuniformEXT(vLightmapIndex)], vLightmap.xy);
+			color.rgb += lightmap.rgb;
+			sunlightAttenuation = lightmap.a;
 		}
 
 		//
 		// apply dynamic lights
 		//
-		vec4 frag = vec4(ProcessMaterialLight(material, color.rgb), material.Base.a * vColor.a);
+		vec4 frag = vec4(ProcessMaterialLight(material, color.rgb, sunlightAttenuation), material.Base.a * vColor.a);
 
 		//
 		// colored fog

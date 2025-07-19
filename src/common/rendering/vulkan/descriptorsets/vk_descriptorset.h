@@ -43,9 +43,13 @@ public:
 	void RemoveMaterial(VkMaterial* texture);
 
 	void UpdateBindlessDescriptorSet();
-	int AddBindlessTextureIndex(VulkanImageView* imageview, VulkanSampler* sampler);
+	void SetBindlessTexture(int index, VulkanImageView* imageview, VulkanSampler* sampler);
 
 	int GetSWColormapTextureIndex(FSWColormap* colormap);
+	int GetLightProbeTextureIndex(int probeIndex);
+
+	int AllocBindlessSlot(int count);
+	void FreeBindlessSlot(int index);
 
 private:
 	void CreateLevelMeshLayout();
@@ -67,6 +71,11 @@ private:
 	std::unique_ptr<VulkanDescriptorSet> AllocatePPSet(VulkanDescriptorSetLayout* layout);
 
 	VulkanRenderDevice* fb = nullptr;
+
+	static const int MaxFixedSets = 100;
+	static const int MaxBindlessTextures = 16536;
+	static const int FixedBindlessSlots = 3;
+	static const int MaxLightmaps = 128;
 
 	struct
 	{
@@ -95,8 +104,17 @@ private:
 		std::unique_ptr<VulkanDescriptorSet> Set;
 		std::unique_ptr<VulkanDescriptorSetLayout> Layout;
 		WriteDescriptors Writer;
-		int NextIndex = 0;
+		int NextIndex = FixedBindlessSlots + MaxLightmaps;
+		std::vector<int> AllocSizes;
+		std::vector<std::vector<int>> FreeSlots;
 	} Bindless;
+
+	struct
+	{
+		std::unique_ptr<VulkanDescriptorPool> Pool;
+		std::unique_ptr<VulkanDescriptorSet> Set;
+		std::unique_ptr<VulkanDescriptorSetLayout> Layout;
+	} Lightmap;
 
 	struct
 	{
@@ -119,7 +137,5 @@ private:
 
 	std::list<VkMaterial*> Materials;
 	std::vector<FSWColormap*> Colormaps;
-
-	static const int MaxFixedSets = 100;
-	static const int MaxBindlessTextures = 16536;
+	std::vector<int> LightProbes;
 };

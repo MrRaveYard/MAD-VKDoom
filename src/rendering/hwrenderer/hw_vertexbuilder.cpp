@@ -205,18 +205,6 @@ static void SetFlatVertex(FFlatVertex& ffv, vertex_t* vt, const secplane_t& plan
 	ffv.lindex = -1.0f;
 }
 
-static void SetFlatVertex(FFlatVertex& ffv, vertex_t* vt, const secplane_t& plane, float llu, float llv, float llindex)
-{
-	ffv.x = (float)vt->fX();
-	ffv.y = (float)vt->fY();
-	ffv.z = (float)plane.ZatPoint(vt);
-	ffv.u = (float)vt->fX() / 64.f;
-	ffv.v = -(float)vt->fY() / 64.f;
-	ffv.lu = llu;
-	ffv.lv = llv;
-	ffv.lindex = llindex;
-}
-
 //==========================================================================
 //
 // Creates the vertices for one plane in one subsector w/lightmap support.
@@ -459,7 +447,7 @@ static void UpdatePlaneLightmap(FRenderState& renderstate, sector_t* sec, int pl
 	{
 		if (origin->sub)
 		{
-			int lightmap = origin->sub->LightmapTiles[origin->plane].Size() > origin->lightmapSlot ? origin->sub->LightmapTiles[origin->plane][origin->lightmapSlot] : -1;
+			int lightmap = origin->sub->LightmapTiles[origin->plane].Size() > (unsigned int)origin->lightmapSlot ? origin->sub->LightmapTiles[origin->plane][origin->lightmapSlot] : -1;
 			if (lightmap >= 0) // tile may be missing if the subsector is degenerate triangle
 			{
 				const auto& tile = level.levelMesh->Lightmap.Tiles[lightmap];
@@ -469,6 +457,10 @@ static void UpdatePlaneLightmap(FRenderState& renderstate, sector_t* sec, int pl
 				vt->lu = luv.X;
 				vt->lv = luv.Y;
 				vt->lindex = lindex;
+			}
+			else
+			{
+				vt->lindex = -1;
 			}
 		}
 	}

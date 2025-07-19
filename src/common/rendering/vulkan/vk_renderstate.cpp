@@ -335,7 +335,7 @@ void VkRenderState::ApplyRenderPass(int dt)
 
 	pipelineKey.ShaderKey.UseShadowmap = gl_light_shadows == 1;
 	pipelineKey.ShaderKey.UseRaytrace = gl_light_shadows >= 2;
-	pipelineKey.ShaderKey.UseRaytracePrecise = gl_light_shadows >= 3;
+	pipelineKey.ShaderKey.Layout.UseRaytracePrecise = gl_light_shadows >= 3;
 	pipelineKey.ShaderKey.ShadowmapFilter = std::clamp(int(gl_light_shadow_filter), 0, 15);
 
 	pipelineKey.ShaderKey.Layout.GBufferPass = mRenderTarget.DrawBuffers > 1;
@@ -457,6 +457,8 @@ void VkRenderState::ApplySurfaceUniforms()
 	{
 		mSurfaceUniforms.uColormapIndex = 0;
 	}
+
+	mSurfaceUniforms.uLightProbeIndex = fb->GetDescriptorSetManager()->GetLightProbeTextureIndex(mLightProbeIndex);
 
 	if (mMaterial.mChanged)
 	{
@@ -1129,7 +1131,7 @@ void VkRenderState::ApplyLevelMeshPipeline(VulkanCommandBuffer* cmdbuffer, VkPip
 	pipelineKey.ShaderKey.NoFragmentShader = noFragmentShader;
 	pipelineKey.ShaderKey.UseShadowmap = gl_light_shadows == 1;
 	pipelineKey.ShaderKey.UseRaytrace = gl_light_shadows >= 2;
-	pipelineKey.ShaderKey.UseRaytracePrecise = gl_light_shadows >= 3;
+	pipelineKey.ShaderKey.Layout.UseRaytracePrecise = gl_light_shadows >= 3;
 	pipelineKey.ShaderKey.ShadowmapFilter = std::clamp(int(gl_light_shadow_filter), 0, 15);
 
 	pipelineKey.ShaderKey.Layout.GBufferPass = mRenderTarget.DrawBuffers > 1;

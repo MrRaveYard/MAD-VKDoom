@@ -88,7 +88,6 @@ CUSTOM_CVAR(Bool, vk_debug, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINI
 }
 
 CVAR(Bool, vk_debug_callstack, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
-
 CVAR(Bool, vk_amd_driver_check, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 CUSTOM_CVAR(Int, vk_device, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITCALL)
@@ -191,9 +190,15 @@ VulkanRenderDevice::VulkanRenderDevice(void *hMonitor, bool fullscreen, std::sha
 
 	if (vk_amd_driver_check)
 	{
-		// Creating pipelines with rayquery currently crashes the AMD driver
-		// To do: try turn this on once in a while to see if they fixed it as we don't want to permanently gimp AMD card performance
-		if (mDevice->PhysicalDevice.Properties.Properties.vendorID == 0x1002)
+		// While we found a workaround for the SPIR-V compiler crashing on specialization constants with rayquery,
+		// the AMDVLK driver (but not the Mesa one!) now produces a shader that only the FIRST frame runs for 10
+		// seconds. This produces a device lost on Windows (command buffer killed by OS) and the freeze from hell
+		// on Linux.
+		//
+		// Maybe some day AMD will have a driver that works for us. Until that day their hardware gets demoted to
+		// the legacy path without RT cores, sorry.
+		auto& props = mDevice->PhysicalDevice.Properties.Properties;
+		if (props.vendorID == 0x1002 && VK_VERSION_MAJOR(props.driverVersion) < 10)
 		{
 			if (mUseRayQuery)
 			{
@@ -401,17 +406,33 @@ void VulkanRenderDevice::RenderTextureView(FCanvasTexture* tex, std::function<vo
 	tex->SetUpdated(true);
 }
 
-void VulkanRenderDevice::RenderEnvironmentMap(std::function<void(IntRect& bounds, int side)> renderFunc, TArrayView<uint16_t>& irradianceMap, TArrayView<uint16_t>& prefilterMap)
+void VulkanRenderDevice::ResetLightProbes()
 {
-	mLightprober->RenderEnvironmentMap(std::move(renderFunc));
-	mLightprober->GenerateIrradianceMap(irradianceMap);
-	mLightprober->GeneratePrefilterMap(prefilterMap);
+	mTextureManager->ResetLightProbes();
 }
 
-void VulkanRenderDevice::UploadEnvironmentMaps(int cubemapCount, const TArray<uint16_t>& irradianceMaps, const TArray<uint16_t>& prefilterMaps)
+void VulkanRenderDevice::RenderLightProbe(int probeIndex, std::function<void(IntRect& bounds, int side)> renderFunc)
 {
-	mTextureManager->CreateIrradiancemap(32, 6 * cubemapCount, irradianceMaps);
-	mTextureManager->CreatePrefiltermap(128, 6 * cubemapCount, prefilterMaps);
+	mLightprober->RenderEnvironmentMap(std::move(renderFunc));
+	mLightprober->GenerateIrradianceMap(probeIndex);
+	mLightprober->GeneratePrefilterMap(probeIndex);
+}
+
+void VulkanRenderDevice::EndLightProbePass()
+{
+	mLightprober->EndLightProbePass();
+}
+
+void VulkanRenderDevice::DownloadLightProbes(int probeCount, TArrayView<uint16_t> irradianceMaps, TArrayView<uint16_t> prefilterMaps)
+{
+	mTextureManager->DownloadIrradiancemap(probeCount, irradianceMaps);
+	mTextureManager->DownloadPrefiltermap(probeCount, prefilterMaps);
+}
+
+void VulkanRenderDevice::UploadLightProbes(int probeCount, const TArray<uint16_t>& irradianceMaps, const TArray<uint16_t>& prefilterMaps)
+{
+	mTextureManager->UploadIrradiancemap(probeCount, irradianceMaps);
+	mTextureManager->UploadPrefiltermap(probeCount, prefilterMaps);
 }
 
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, bool palettePostprocess, const std::function<void()> &afterBloomDrawEndScene2D)
@@ -633,7 +654,7 @@ void VulkanRenderDevice::BeginFrame()
 	SetViewportRects(nullptr);
 	mCommands->BeginFrame();
 	mLevelMesh->BeginFrame();
-	mTextureManager->BeginFrame();
+	mTextureManager->BeginFrame(levelMesh->Lightmap.TextureSize, levelMesh->Lightmap.TextureCount);
 	mScreenBuffers->BeginFrame(screen->mScreenViewport.width, screen->mScreenViewport.height, screen->mSceneViewport.width, screen->mSceneViewport.height);
 	mSaveBuffers->BeginFrame(SAVEPICWIDTH, SAVEPICHEIGHT, SAVEPICWIDTH, SAVEPICHEIGHT);
 	mRenderState->BeginFrame();

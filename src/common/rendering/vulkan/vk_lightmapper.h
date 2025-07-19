@@ -95,9 +95,13 @@ struct CopyTileInfo
 	int TileHeight;
 	int Padding1;
 	int Padding2;
+	FVector3 WorldOrigin;
+	float Padding3;
+	FVector3 WorldU;
+	float Padding4;
+	FVector3 WorldV;
+	float Padding5;
 };
-
-static_assert(sizeof(CopyTileInfo) == sizeof(int32_t) * 8);
 
 class VkLightmapper
 {
@@ -175,6 +179,7 @@ private:
 		VkDrawIndexedIndirectCommand* Commands = nullptr;
 		LightmapRaytracePC* Constants = nullptr;
 		int Pos = 0;
+		bool IsFull = false;
 	} drawindexed;
 
 	struct

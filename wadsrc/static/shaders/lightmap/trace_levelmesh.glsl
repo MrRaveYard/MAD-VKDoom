@@ -6,6 +6,15 @@ SurfaceInfo GetSurface(int primitiveIndex)
 	return surfaces[surfaceIndices[primitiveIndex]];
 }
 
+vec3 GetSurfacePos(int primitiveIndex, vec3 primitiveWeights)
+{
+	int index = primitiveIndex * 3;
+	return
+		vertices[elements[index + 1]].pos * primitiveWeights.x +
+		vertices[elements[index + 2]].pos * primitiveWeights.y +
+		vertices[elements[index + 0]].pos * primitiveWeights.z;
+}
+
 vec2 GetSurfaceUV(int primitiveIndex, vec3 primitiveWeights)
 {
 	int index = primitiveIndex * 3;
@@ -13,6 +22,19 @@ vec2 GetSurfaceUV(int primitiveIndex, vec3 primitiveWeights)
 		vertices[elements[index + 1]].uv * primitiveWeights.x +
 		vertices[elements[index + 2]].uv * primitiveWeights.y +
 		vertices[elements[index + 0]].uv * primitiveWeights.z;
+}
+
+float PassAttenuationThroughSurface(SurfaceInfo surface, vec2 uv, float attentuation)
+{
+	if (surface.TextureIndex == 0)
+	{
+		return attentuation;
+	}
+	else
+	{
+		vec4 color = texture(textures[surface.TextureIndex], uv);
+		return attentuation * (1.0 - color.a * surface.Alpha);
+	}
 }
 
 vec3 PassRayThroughSurface(SurfaceInfo surface, vec2 uv, vec3 rayColor)

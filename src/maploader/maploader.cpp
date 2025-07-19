@@ -3576,13 +3576,7 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 		P_Recalculate3DFloors(&sec);
 	}
 
-	InitLevelMesh(map);
-
-	UpdateVBOLightmap(*screen->RenderState(), Level->sectors);
-
-	Level->aabbTree = new DoomLevelAABBTree(Level);
-
-	// [DVR] Populate subsector->bbox for alternative space culling in orthographic projection with no fog of war
+	// Calculate subsector->bbox
 	subsector_t* sub = &Level->subsectors[0];
 	seg_t* seg;
 	for (unsigned int kk = 0; kk < Level->subsectors.Size(); kk++)
@@ -3590,9 +3584,9 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 		sub[kk].bbox.ClearBox();
 		unsigned int count = sub[kk].numlines;
 		seg = sub[kk].firstline;
-		while(count--)
+		while (count--)
 		{
-			if((seg->v1 != nullptr) && (seg->v2 != nullptr))
+			if ((seg->v1 != nullptr) && (seg->v2 != nullptr))
 			{
 				sub[kk].bbox.AddToBox(seg->v1->fPos());
 				sub[kk].bbox.AddToBox(seg->v2->fPos());
@@ -3600,6 +3594,14 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 			seg++;
 		}
 	}
+
+	Level->RecalculateLightProbeTargets();
+
+	InitLevelMesh(map);
+
+	UpdateVBOLightmap(*screen->RenderState(), Level->sectors);
+
+	Level->aabbTree = new DoomLevelAABBTree(Level);
 
 	LevelMeshUpdater = Level->levelMesh; // Start tracking level changes
 }

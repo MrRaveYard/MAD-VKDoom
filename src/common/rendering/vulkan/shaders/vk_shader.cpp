@@ -247,9 +247,10 @@ static std::vector<BuiltinFieldDesc> vertexShaderOutputs
 	{"vEyeNormal",		"",		UniformType::Vec4,	FieldCondition::ALWAYS},			//6
 	{"ClipDistanceA",	"",		UniformType::Vec4,	FieldCondition::HAS_CLIPDISTANCE},	//7
 	{"ClipDistanceB",	"",		UniformType::Vec4,	FieldCondition::HAS_CLIPDISTANCE},	//8
-	{"vLightmap",		"",		UniformType::Vec3,	FieldCondition::ALWAYS},			//9
-	{"uDataIndex",		"flat", UniformType::Int,	FieldCondition::USELEVELMESH},		//10
-	{"vLightColor",		"",		UniformType::Vec3,	FieldCondition::SHADE_VERTEX},		//11
+	{"vLightmap",		"",		UniformType::Vec2,	FieldCondition::ALWAYS},			//9
+	{"vLightmapIndex",	"flat",	UniformType::Int,	FieldCondition::ALWAYS},			//10
+	{"uDataIndex",		"flat", UniformType::Int,	FieldCondition::USELEVELMESH},		//11
+	{"vLightColor",		"",		UniformType::Vec3,	FieldCondition::SHADE_VERTEX},		//12
 };
 
 static std::vector<BuiltinFieldDesc> fragShaderOutputs
@@ -419,6 +420,7 @@ void VkShaderManager::BuildDefinesBlock(FString &definesBlock, const char *defin
 	if (key.Layout.GBufferPass) definesBlock << "#define GBUFFER_PASS\n";
 	if (key.Layout.UseLevelMesh) definesBlock << "#define USE_LEVELMESH\n";
 	if (key.Layout.ShadeVertex) definesBlock << "#define SHADE_VERTEX\n";
+	if (key.Layout.UseRaytracePrecise) definesBlock << "#define USE_RAYTRACE_PRECISE\n";
 
 	// We could move this to shaders/shaderkey.glsl as its always the same:
 
@@ -440,7 +442,6 @@ void VkShaderManager::BuildDefinesBlock(FString &definesBlock, const char *defin
 	definesBlock << "#define USE_SHADOWMAP ((uShaderKey1 & SK1_USE_SHADOWMAP) != 0)\n";
 
 	definesBlock << "#define USE_RAYTRACE ((uShaderKey1 & SK1_USE_RAYTRACE) != 0)\n";
-	definesBlock << "#define USE_RAYTRACE_PRECISE ((uShaderKey1 & SK1_USE_RAYTRACE_PRECISE) != 0)\n";
 
 	definesBlock << "#define SHADOWMAP_FILTER (SK_GET_SHADOWMAP_FILTER())\n";
 
