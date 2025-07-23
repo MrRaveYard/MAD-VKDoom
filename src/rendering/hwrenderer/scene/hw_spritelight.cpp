@@ -378,6 +378,7 @@ void HWDrawInfo::GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trac
 	}
 }
 
+CVAR(Float, gl_light_skipbspwalkthreshold, 192.0, CVAR_ARCHIVE); // [RaveYard]: Set to `0` to restore VkDoom GetDynSpriteLightList behavior of using bsp walking instead of light list
 
 void HWDrawInfo::GetDynSpriteLightList(AActor *self, double x, double y, double z, sun_trace_cache_t * traceCache, FDynLightData &modellightdata, bool isModel)
 {
@@ -407,6 +408,44 @@ void HWDrawInfo::GetDynSpriteLightList(AActor *self, double x, double y, double 
 	if ((level.lightmaps && gl_spritelight > 0) || ActorTraceStaticLight::TraceSunVisibility(x, y, z, traceCache, (self ? staticLight.ActorMoved : traceCache ? traceCache->Pos != DVector3(x, y, z) : false)))
 	{
 		AddSunLightToList(modellightdata, x, y, z, Level->SunDirection, Level->SunColor * Level->SunIntensity, gl_spritelight > 0);
+	}
+
+	if (gl_light_skipbspwalkthreshold >= actorradius && self && self->section)
+	{
+		for(auto node = self->section->lighthead; node; node = node->nextLight)
+		{
+			FDynamicLight* light = node->lightsource;
+			if (light->ShouldLightActor(self))
+			{
+				int group = 0; // TODO light-- > sector->PortalGroup;
+				DVector3 pos = light->PosRelative(group);
+				float radius = (float)(light->GetRadius() + actorradius);
+				double dx = pos.X - x;
+				double dy = pos.Y - y;
+				double dz = pos.Z - z;
+				double distSquared = dx * dx + dy * dy + dz * dz;
+				if (distSquared < radius * radius) // Light and actor touches
+				{
+					unsigned index = addedLights.SortedFind(light, false);
+					if (index == addedLights.Size() || addedLights[index] != light) // Check if we already added this light from a different subsector (use binary search instead of linear search)
+					{
+						FVector3 L(dx, dy, dz);
+						float dist = sqrtf(distSquared);
+						if (gl_spritelight == 0 && light->TraceActors())
+							L *= 1.0f / dist;
+
+						if (gl_spritelight > 0 || staticLight.TraceLightVisbility(node, L, dist, light->updated))
+						{
+							AddLightToList(modellightdata, group, light, true, gl_spritelight > 0);
+						}
+
+						addedLights.Insert(index, light);
+					}
+				}
+			}
+		}
+
+		return;
 	}
 
 	BSPWalkCircle(Level, x, y, radiusSquared, [&](subsector_t *subsector) // Iterate through all subsectors potentially touched by actor
