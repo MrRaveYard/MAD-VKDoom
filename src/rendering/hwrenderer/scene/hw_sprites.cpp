@@ -859,7 +859,8 @@ void HWSprite::Process(HWDrawInfo *di, FRenderState& state, AActor* thing, secto
 	// [ZZ] allow CustomSprite-style direct picnum specification
 	bool isPicnumOverride = thing->picnum.isValid();
 
-	bool isFogball = thing->IsKindOf(NAME_Fogball);
+	bool isSpecial = thing->renderflags2 & RF2_SPECIALRENDERHANDLING;
+	bool isFogball = isSpecial && thing->IsKindOf(NAME_Fogball);
 
 	// Don't waste time projecting sprites that are definitely not visible.
 	if ((thing->sprite == 0 && !isPicnumOverride && !isFogball) || !thing->IsVisibleToPlayer() || ((thing->renderflags & RF_MASKROTATION) && !thing->IsInsideVisibleAngles()))
@@ -878,7 +879,7 @@ void HWSprite::Process(HWDrawInfo *di, FRenderState& state, AActor* thing, secto
 		return;
 	}
 
-	if (thing->IsKindOf(NAME_Corona))
+	if (isSpecial && thing->IsKindOf(NAME_Corona))
 	{
 		Coronas.SortedInsertUnique(thing);
 		return;

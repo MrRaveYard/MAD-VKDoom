@@ -37,5 +37,6 @@ class Corona : Actor abstract
 		+NOBLOCKMAP
 		+NOGRAVITY
 		+FORCEXYBILLBOARD
+		+SPECIALRENDERHANDLING
 	}
 }

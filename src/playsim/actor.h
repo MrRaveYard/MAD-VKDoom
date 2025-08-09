@@ -512,6 +512,7 @@ enum ActorRenderFlag2
 	RF2_LIGHTMULTALPHA			= 0x0400,	// attached lights use alpha as intensity multiplier
 	RF2_INTERPOLATESCALE		= 0x0800,	// allow interpolation of actor's scale
 	RF2_INTERPOLATEALPHA		= 0x1000,	// allow interpolation of actor's alpha
+	RF2_SPECIALRENDERHANDLING	= 0x2000,	// use alternative rendering? (fogball/corona)
 };
 
 // This translucency value produces the closest match to Heretic's TINTTAB.
