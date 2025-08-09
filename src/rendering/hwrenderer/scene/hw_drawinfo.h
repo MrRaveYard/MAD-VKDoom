@@ -96,6 +96,50 @@ enum DrawListType
 	GLDL_TYPES,
 };
 
+struct CameraFrustum
+{
+	void Set(const VSMatrix& worldToProjection, const DVector3& viewpoint);
+
+	bool IsSphereVisible(const DVector3& point, double radius) const
+	{
+		for (int i = 0; i < 6; i++)
+		{
+			if ((Planes[i].XYZ() | point) < -radius)
+				return false;
+		}
+		return true;
+	}
+
+	bool IsAABBVisible(const DVector3& aabbMin, const DVector3& aabbMax) const
+	{
+		DVector3 aabbCenter = (aabbMin + aabbMax) * 0.5;
+		DVector3 aabbExtents = (aabbMax - aabbMin) * 0.5;
+		for (int i = 0; i < 6; i++)
+		{
+			double distance = Planes[i] | DVector4(aabbCenter, 1.0);
+			double radius = AbsPlaneNormals[i] | aabbExtents;
+			bool outside = distance < -radius;
+			//bool inside = distance > radius;
+			//bool intersect = distance > -radius && distance < radius;
+			if (outside)
+				return false;
+		}
+		return true;
+	}
+
+private:
+	static DVector4 LeftFrustum(const VSMatrix& matrix);
+	static DVector4 RightFrustum(const VSMatrix& matrix);
+	static DVector4 TopFrustum(const VSMatrix& matrix);
+	static DVector4 BottomFrustum(const VSMatrix& matrix);
+	static DVector4 NearFrustum(const VSMatrix& matrix);
+	static DVector4 FarFrustum(const VSMatrix& matrix);
+	static DVector4 Normalize(DVector4 v);
+
+	DVector3 AbsPlaneNormals[6];
+	DVector4 Planes[6];
+};
+
 struct HWDrawInfo
 {
 	struct wallseg
@@ -149,6 +193,7 @@ struct HWDrawInfo
 	Clipper *mClipper;
 	Clipper *vClipper; // Vertical clipper
 	Clipper *rClipper; // Radar clipper
+	CameraFrustum ClipFrustum;
 	FRenderViewpoint Viewpoint;
 	HWViewpointUniforms VPUniforms;	// per-viewpoint uniform state
 	VSMatrix ProjectionMatrix2;
@@ -242,8 +287,10 @@ struct HWDrawInfo
 	void AddSpecialPortalLines(subsector_t * sub, sector_t * sector, linebase_t *line);
 public:
 	void DoSubsector(subsector_t * sub);
-	void DrawPSprite(HUDSprite* huds, FRenderState& state);
-	WeaponLighting GetWeaponLighting(sector_t* viewsector, const DVector3& pos, int cm, area_t in_area, const DVector3& playerpos);
+	int SetupLightsForOtherPlane(subsector_t * sub, FDynLightData &lightdata, const secplane_t *plane);
+	int CreateOtherPlaneVertices(subsector_t *sub, const secplane_t *plane);
+	void DrawPSprite(HUDSprite *huds, FRenderState &state);
+	WeaponLighting GetWeaponLighting(sector_t *viewsector, const DVector3 &pos, int cm, area_t in_area, const DVector3 &playerpos, bool weaponPureLightLevel);
 
 	void PreparePlayerSprites2D(sector_t* viewsector, area_t in_area, FRenderState& state);
 	void PreparePlayerSprites3D(sector_t* viewsector, area_t in_area, FRenderState& state);
@@ -368,7 +415,7 @@ public:
 	void AddOtherFloorPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 	void AddOtherCeilingPlane(int sector, gl_subsectorrendernode * node, FRenderState& state);
 
-	void GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FLightNode *node, int portalgroup, float *out, bool fullbright, subsector_t* subsector);
+	void GetDynSpriteLight(AActor *self, sun_trace_cache_t * traceCache, double x, double y, double z, FSection *sec, int portalgroup, float *out, bool fullbright, subsector_t * subsector);
 	void GetDynSpriteLight(AActor *thing, particle_t *particle, sun_trace_cache_t * traceCache, float *out);
 
 	void GetDynSpriteLightList(AActor *self, double x, double y, double z, sun_trace_cache_t * traceCache, FDynLightData &modellightdata, bool isModel);
@@ -458,7 +505,7 @@ inline bool isDarkLightMode(ELightMode lightmode)
 	return lightmode == ELightMode::Doom || lightmode == ELightMode::DoomDark;
 }
 
-int CalcLightLevel(ELightMode lightmode, int lightlevel, int rellight, bool weapon, int blendfactor);
+int CalcLightLevel(ELightMode lightmode, int lightlevel, int rellight, bool weapon, int blendfactor, bool weaponPureLightLevel = false);
 PalEntry CalcLightColor(ELightMode lightmode, int light, PalEntry pe, int blendfactor);
 float GetFogDensity(FLevelLocals* Level, ELightMode lightmode, int lightlevel, PalEntry fogcolor, int sectorfogdensity, int blendfactor);
 bool CheckFog(FLevelLocals* Level, sector_t* frontsector, sector_t* backsector, ELightMode lightmode);

@@ -162,7 +162,7 @@ namespace swrenderer
 		vis->FillColor = thing->fillcolor;
 		vis->Translation = thing->Translation;		// [RH] thing translation table
 		vis->FakeFlatStat = fakeside;
-		vis->Alpha = thing->GetAlphaF(r_viewpoint.TicFrac);
+		vis->Alpha = (float)thing->InterpolatedAlpha(r_viewpoint.TicFrac);
 		vis->fakefloor = fakefloor;
 		vis->fakeceiling = fakeceiling;
 		vis->bInMirror = renderportal->MirrorFlags & RF_XFLIP;

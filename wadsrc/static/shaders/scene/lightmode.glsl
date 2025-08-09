@@ -48,16 +48,19 @@ vec4 getLightColor(Material material)
 		int light = clamp(int((shade - vis) * 32), 0, 31);
 
 		vec3 matColor = texelFetch(textures[uColormapIndex], ivec2(color, 32), 0).rgb;
-		vec4 frag = vec4(texelFetch(textures[uColormapIndex], ivec2(color, light), 0).rgb, 1.0);
+		vec4 frag = vec4(texelFetch(textures[uColormapIndex], ivec2(color, light), 0).rgb, material.Base.a * vColor.a);
 
 		vec4 dynlight = uDynLightColor;
 
+		float sunlightAttenuation = 0.0;
 		if (vLightmapIndex != -1)
 		{
-			dynlight.rgb += texture(textures[nonuniformEXT(vLightmapIndex)], vLightmap.xy).rgb;
+			vec4 lightmap = texture(textures[nonuniformEXT(vLightmapIndex)], vLightmap.xy);
+			dynlight.rgb += lightmap.rgb;
+			sunlightAttenuation = lightmap.a;
 		}
 
-		dynlight.rgb += ProcessSWLight(material);
+		dynlight.rgb += ProcessSWLight(material, sunlightAttenuation);
 
 		frag.rgb = PickGamePaletteColor(frag.rgb + matColor * dynlight.rgb);
 		return frag;
@@ -111,6 +114,10 @@ vec4 getLightColor(Material material)
 			sunlightAttenuation = lightmap.a;
 		}
 
+		// Force sunlight flag
+		if (uDynLightColor.w == -1)
+			sunlightAttenuation = 1.0;
+
 		//
 		// apply dynamic lights
 		//
@@ -149,6 +156,10 @@ vec3 AmbientOcclusionColor()
 		fogdist = max(16.0, distance(pixelpos.xyz, uCameraPos.xyz));
 	else
 		fogdist = max(16.0, pixelpos.w);
+
+	if (uThickFogDistance > 0.0 && fogdist > uThickFogDistance)
+		fogdist = fogdist + uThickFogMultiplier * (fogdist - uThickFogDistance);
+
 	float fogfactor = exp2 (uFogDensity * fogdist);
 
 	vec4 color = vec4(mix(uFogColor.rgb, vec3(0.0), fogfactor), 0.0);
@@ -191,6 +202,10 @@ vec4 ProcessLightMode(Material material)
 					fogdist = max(16.0, distance(pixelpos.xyz, uCameraPos.xyz));
 				else
 					fogdist = max(16.0, pixelpos.w);
+
+				if (uThickFogDistance > 0.0 && fogdist > uThickFogDistance)
+					fogdist = fogdist + uThickFogMultiplier * (fogdist - uThickFogDistance);
+
 				float fogfactor = exp2 (uFogDensity * fogdist);
 
 				return vec4(uFogColor.rgb, (1.0 - fogfactor) * material.Base.a * 0.75 * vColor.a);

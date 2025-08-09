@@ -125,7 +125,7 @@ bool FPortalSceneState::RenderFirstSkyPortal(int recursion, HWDrawInfo *outer_di
 {
 	HWPortal * best = nullptr;
 	unsigned bestindex = 0;
-	bool usestencil = outer_di->Viewpoint.IsAllowedOoB();
+	bool usestencil = outer_di->Viewpoint.bDoOob;
 
 	// Find the one with the highest amount of lines.
 	// Normally this is also the one that saves the largest amount
@@ -504,7 +504,7 @@ bool HWMirrorPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *clippe
 	}
 
 	auto &vp = di->Viewpoint;
-	state->vpIsAllowedOoB = vp.IsAllowedOoB();
+	state->vpIsAllowedOoB = vp.bDoOob;
 	di->UpdateCurrentMapSection();
 
 	di->mClipPortal = this;
@@ -573,7 +573,7 @@ bool HWMirrorPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *clippe
 	angle_t af = di->FrustumAngle();
 	if (af < ANGLE_180) clipper->SafeAddClipRangeRealAngles(vp.Angles.Yaw.BAMs() + af, vp.Angles.Yaw.BAMs() - af);
 
-	if (!di->Viewpoint.IsAllowedOoB())
+	if(!di->Viewpoint.bDoOob)
 		clipper->SafeAddClipRange(linedef->v1, linedef->v2);
 	return true;
 }
@@ -609,7 +609,7 @@ bool HWLineToLinePortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *cl
 		return false;
 	}
 	auto &vp = di->Viewpoint;
-	state->vpIsAllowedOoB = vp.IsAllowedOoB();
+	state->vpIsAllowedOoB = vp.bDoOob;
 	di->mClipPortal = this;
 
 	line_t *origin = glport->lines[0]->mOrigin;
@@ -689,7 +689,7 @@ bool HWSkyboxPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *clippe
 		return false;
 	}
 	auto &vp = di->Viewpoint;
-	state->vpIsAllowedOoB = vp.IsAllowedOoB();
+	state->vpIsAllowedOoB = vp.bDoOob;
 
 	state->skyboxrecursion++;
 	state->PlaneMirrorMode = 0;
@@ -804,7 +804,7 @@ bool HWSectorStackPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 
 	FSectorPortalGroup *portal = origin;
 	auto &vp = di->Viewpoint;
-	state->vpIsAllowedOoB = vp.IsAllowedOoB();
+	state->vpIsAllowedOoB = vp.bDoOob;
 
 	vp.Pos += origin->mDisplacement;
 	vp.ActorPos += origin->mDisplacement;
@@ -813,7 +813,7 @@ bool HWSectorStackPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 
 	// avoid recursions!
 	if (origin->plane != -1) screen->instack[origin->plane]++;
-	if (vp.IsAllowedOoB() && lines.Size() > 0)
+	if (vp.bDoOob && lines.Size() > 0)
 	{
 		flat.plane.GetFromSector(lines[0].sub->sector, origin->plane);
 		di->SetClipHeight(flat.plane.plane.ZatPoint(vp.Pos),
@@ -826,7 +826,7 @@ bool HWSectorStackPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 	// If the viewpoint is not within the portal, we need to invalidate the entire clip area.
 	// The portal will re-validate the necessary parts when its subsectors get traversed.
 	subsector_t *sub = di->Level->PointInRenderSubsector(vp.Pos);
-	if (vp.IsAllowedOoB()) sub = di->Level->PointInRenderSubsector(vp.OffPos);
+	if (vp.bDoOob) sub = di->Level->PointInRenderSubsector(vp.OffPos);
 	if (!(di->ss_renderflags[sub->Index()] & SSRF_SEEN))
 	{
 		clipper->SafeAddClipRange(0, ANGLE_MAX);
@@ -894,7 +894,7 @@ bool HWPlaneMirrorPortal::Setup(HWDrawInfo *di, FRenderState &rstate, Clipper *c
 	std::swap(screen->instack[sector_t::floor], screen->instack[sector_t::ceiling]);
 
 	auto &vp = di->Viewpoint;
-	state->vpIsAllowedOoB = vp.IsAllowedOoB();
+	state->vpIsAllowedOoB = vp.bDoOob;
 	old_pm = state->PlaneMirrorMode;
 
 	// the player is always visible in a mirror.
@@ -949,6 +949,8 @@ void HWPlaneMirrorPortal::Shutdown(HWDrawInfo *di, FRenderState &rstate)
 }
 
 const char *HWPlaneMirrorPortal::GetName() { return origin->fC() < 0? "Planemirror ceiling" : "Planemirror floor"; }
+
+int HWPlaneMirrorPortal::GetMirrorSide() const { return origin->fC() < 0 ? -1 : 1; };
 
 
 //-----------------------------------------------------------------------------
@@ -1059,11 +1061,7 @@ void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 	}
 
 	if (origin->sunlight)
-	{
-		float attenuation = std::max(FVector3(sp->plane.normal) | level.SunDirection, 0.0f);
-		FVector3 suncolor = level.SunColor * (attenuation * level.SunIntensity);
-		state.SetDynLight(suncolor.X, suncolor.Y, suncolor.Z);
-	}
+		state.SetForceSunlight(true);
 
 	state.EnableBrightmap(true);
 	state.SetMaterial(texture, UF_Texture, 0, CLAMP_NONE, NO_TRANSLATION, -1);
@@ -1083,7 +1081,7 @@ void HWHorizonPortal::DrawContents(HWDrawInfo *di, FRenderState &state)
 		state.SetTextureMatrix(VSMatrix::identity());
 
 	if (origin->sunlight)
-		state.SetDynLight(0.0f, 0.0f, 0.0f);
+		state.SetForceSunlight(false);
 }
 
 

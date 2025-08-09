@@ -130,7 +130,7 @@ namespace swrenderer
 		vis->FillColor = thing->fillcolor;
 		vis->Translation = thing->Translation;
 		vis->FakeFlatStat = WaterFakeSide::Center;
-		vis->Alpha = thing->GetAlphaF(r_viewpoint.TicFrac);
+		vis->Alpha = (float)thing->InterpolatedAlpha(r_viewpoint.TicFrac);
 		vis->fakefloor = NULL;
 		vis->fakeceiling = NULL;
 		//vis->bInMirror = renderportal->MirrorFlags & RF_XFLIP;

@@ -141,6 +141,8 @@ void HWDrawInfo::StartScene(FRenderViewpoint &parentvp, HWViewpointUniforms *uni
 		VPUniforms.SunDir = FVector3(level.SunDirection.X, level.SunDirection.Z, level.SunDirection.Y);
 		VPUniforms.SunColor = level.SunColor;
 		VPUniforms.SunIntensity = level.SunIntensity;
+		VPUniforms.mThickFogDistance = Level->thickfogdistance;
+		VPUniforms.mThickFogMultiplier = Level->thickfogmultiplier;
 	}
 	mClipper->SetViewpoint(Viewpoint);
 	vClipper->SetViewpoint(Viewpoint);
@@ -240,7 +242,7 @@ void HWDrawInfo::ClearBuffers()
 void HWDrawInfo::UpdateCurrentMapSection()
 {
 	int mapsection = Level->PointInRenderSubsector(Viewpoint.Pos)->mapsection;
-	if (Viewpoint.IsAllowedOoB() || Viewpoint.IsOrtho())
+	if (Viewpoint.bDoOob || Viewpoint.bDoOrtho)
 		mapsection = Level->PointInRenderSubsector(Viewpoint.OffPos)->mapsection;
 	CurrentMapSections.Set(mapsection);
 }
@@ -257,8 +259,8 @@ void HWDrawInfo::SetViewArea()
 	auto &vp = Viewpoint;
 	// The render_sector is better suited to represent the current position in GL
 	vp.sector = Level->PointInRenderSubsector(vp.Pos)->render_sector;
-	if (Viewpoint.IsAllowedOoB())
-	  vp.sector = Level->PointInRenderSubsector(vp.camera->Pos())->render_sector;
+	if (Viewpoint.bDoOob)
+		vp.sector = Level->PointInRenderSubsector(vp.camera->Pos())->render_sector;
 
 	// Get the heightsec state from the render sector, not the current one!
 	if (vp.sector->GetHeightSec())
@@ -357,7 +359,7 @@ angle_t OoBFrustumAngle(FRenderViewpoint* Viewpoint)
 
 angle_t HWDrawInfo::FrustumAngle()
 {
-	if (Viewpoint.IsAllowedOoB())
+	if (Viewpoint.bDoOob)
 	{
 		return OoBFrustumAngle(&Viewpoint);
 	}
@@ -608,7 +610,7 @@ void HWDrawInfo::CreateScene(bool drawpsprites, FRenderState& state)
 	angle_t a1 = FrustumAngle();
 	mClipper->SafeAddClipRangeRealAngles(vp.Angles.Yaw.BAMs() + a1, vp.Angles.Yaw.BAMs() - a1);
 	Viewpoint.FrustAngle = a1;
-	if (Viewpoint.IsAllowedOoB()) // No need for vertical clipper if viewpoint not allowed out of bounds
+	if (Viewpoint.bDoOob) // No need for vertical clipper if viewpoint not allowed out of bounds
 	{
 		double a2 = 20.0 + 0.5*Viewpoint.FieldOfView.Degrees(); // FrustumPitch for vertical clipping
 		if (a2 > 179.0) a2 = 179.0;
@@ -900,7 +902,7 @@ void HWDrawInfo::RenderScene(FRenderState &state)
 
 	drawlists[GLDL_MODELS].Draw(this, state, false);
 
-	state.SetPaletteMode(false); // Translucent stuff uses other rules in the software renderer. We don't support that right now.
+	state.SetPaletteMode(false); // Decals run with some renderstyle that is still not correctly handled
 
 	state.SetRenderStyle(STYLE_Translucent);
 
@@ -1007,6 +1009,15 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 {
 	RenderAll.Clock();
 
+	if (!V_IsTrueColor())
+	{
+		state.SetPaletteMode(!V_IsTrueColor());
+
+		FColormap cm;
+		cm.Clear();
+		state.SetSWColormap(GetColorTable(cm));
+	}
+
 	// final pass: translucent stuff
 	state.AlphaFunc(Alpha_GEqual, gl_mask_sprite_threshold);
 	state.SetRenderStyle(STYLE_Translucent);
@@ -1031,6 +1042,7 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 	drawlists[GLDL_TRANSLUCENT].DrawSorted(this, state);
 	state.EnableBrightmap(false);
 
+	state.SetPaletteMode(false);
 
 	state.AlphaFunc(Alpha_GEqual, 0.5f);
 	state.SetDepthMask(true);
@@ -1129,17 +1141,6 @@ void HWDrawInfo::DrawCorona(FRenderState& state, AActor* corona, float coronaFad
 	state.Draw(DT_TriangleStrip, vertexindex, 4);
 }
 
-static ETraceStatus CheckForViewpointActor(FTraceResults& res, void* userdata)
-{
-	FRenderViewpoint* data = (FRenderViewpoint*)userdata;
-	if (res.HitType == TRACE_HitActor && res.Actor && res.Actor == data->ViewActor)
-	{
-		return TRACE_Skip;
-	}
-
-	return TRACE_Stop;
-}
-
 //==========================================================================
 //
 // TraceCallbackForDitherTransparency
@@ -1179,7 +1180,7 @@ static ETraceStatus TraceCallbackForDitherTransparency(FTraceResults& res, void*
 					res.Line->sidedef[res.Side]->dithertranscount = 1;
 				}
 			}
- 		}
+		}
 		break;
 	case TRACE_HitFloor:
 		if (res.Sector->subsectorcount > 0 && (*CurMapSections)[res.Sector->subsectors[0]->mapsection] && res.HitVector.dot(res.Sector->floorplane.Normal()) < 0.0)
@@ -1252,7 +1253,7 @@ void HWDrawInfo::SetDitherTransFlags(AActor* actor)
 		double horiy = Viewpoint.Cos * actor->radius;
 		DVector3 actorpos = actor->Pos();
 		DVector3 vvec = actorpos - Viewpoint.Pos;
-		if (Viewpoint.IsOrtho())
+		if (Viewpoint.bDoOrtho)
 		{
 			vvec = 5.0 * Viewpoint.camera->ViewPos->Offset.Length() * Viewpoint.ViewVector3D; // Should be 4.0? (since zNear is behind screen by 3*dist in VREyeInfo::GetProjection())
 		}
@@ -1288,6 +1289,16 @@ void HWDrawInfo::SetDitherTransFlags(AActor* actor)
 	}
 }
 
+static ETraceStatus CheckForViewpointActor(FTraceResults& res, void* userdata)
+{
+	FRenderViewpoint* data = (FRenderViewpoint*)userdata;
+	if (res.HitType == TRACE_HitActor && res.Actor && res.Actor == data->ViewActor)
+	{
+		return TRACE_Skip;
+	}
+
+	return TRACE_Stop;
+}
 
 void HWDrawInfo::DrawCoronas(FRenderState& state)
 {
@@ -1437,7 +1448,7 @@ void HWDrawInfo::DrawScene(int drawmode, FRenderState& state)
 	{
 		ssao_portals_available = gl_ssao_portals;
 		applySSAO = true;
-		if (r_dithertransparency && vp.IsAllowedOoB())
+		if (r_dithertransparency && vp.bDoOob)
 		{
 			if (vp.camera->tracer)
 				SetDitherTransFlags(vp.camera->tracer);
@@ -1515,7 +1526,7 @@ void HWDrawInfo::ProcessScene(bool toscreen, FRenderState& state)
 	drawctx->portalState.BeginScene();
 
 	int mapsection = Level->PointInRenderSubsector(Viewpoint.Pos)->mapsection;
-	if (Viewpoint.IsAllowedOoB() || Viewpoint.IsOrtho())
+	if (Viewpoint.bDoOob || Viewpoint.bDoOrtho)
 		mapsection = Level->PointInRenderSubsector(Viewpoint.OffPos)->mapsection;
 	CurrentMapSections.Set(mapsection);
 	DrawScene(toscreen ? DM_MAINVIEW : DM_OFFSCREEN, state);

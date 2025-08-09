@@ -209,7 +209,7 @@ namespace swrenderer
 		uint16_t				flip;
 		FGameTexture*			tex;
 		bool				noaccel;
-		double				alpha = owner->GetAlpha(r_viewpoint.TicFrac);
+		double				alpha = owner->InterpolatedAlpha(r_viewpoint.TicFrac);
 
 		// decide which patch to use
 		if ((unsigned)pspr->GetSprite() >= (unsigned)sprites.Size())
@@ -332,7 +332,7 @@ namespace swrenderer
 		if (pspr->GetID() < PSP_TARGETCENTER)
 		{
 			// [MC] Set the render style 
-			auto rs = pspr->GetRenderStyle(owner->RenderStyle, owner->GetAlpha(r_viewpoint.TicFrac));
+			auto rs = pspr->GetRenderStyle(owner->RenderStyle, owner->InterpolatedAlpha(r_viewpoint.TicFrac));
 			vis.RenderStyle = rs.first;
 			vis.Alpha = rs.second;
 

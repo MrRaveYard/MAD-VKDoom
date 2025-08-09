@@ -561,7 +561,7 @@ namespace swrenderer
 				Fake3DOpaque::Normal,
 				0);
 
-			ceilingplane->AddLights(Thread, sub->section->lighthead);
+			ceilingplane->AddLights(Thread, sub->section);
 		}
 
 		int adjusted_floorlightlevel = floorlightlevel;
@@ -601,7 +601,7 @@ namespace swrenderer
 				Fake3DOpaque::Normal,
 				0);
 
-			floorplane->AddLights(Thread, sub->section->lighthead);
+			floorplane->AddLights(Thread, sub->section);
 		}
 
 		Add3DFloorPlanes(sub, frontsector, basecolormap, foggy, adjusted_ceilinglightlevel, adjusted_floorlightlevel);
@@ -738,7 +738,7 @@ namespace swrenderer
 						Fake3DOpaque::FakeFloor,
 						fakeAlpha);
 
-					floorplane3d->AddLights(Thread, sub->section->lighthead);
+					floorplane3d->AddLights(Thread, sub->section);
 
 					FakeDrawLoop(sub, &tempsec, floorplane3d, nullptr, Fake3DOpaque::FakeFloor);
 				}
@@ -806,7 +806,7 @@ namespace swrenderer
 						Fake3DOpaque::FakeCeiling,
 						fakeAlpha);
 
-					ceilingplane3d->AddLights(Thread, sub->section->lighthead);
+					ceilingplane3d->AddLights(Thread, sub->section);
 
 					FakeDrawLoop(sub, &tempsec, nullptr, ceilingplane3d, Fake3DOpaque::FakeCeiling);
 				}
@@ -994,7 +994,7 @@ namespace swrenderer
 		if (thing == nullptr ||
 			(thing->renderflags & RF_INVISIBLE) ||
 			(thing->renderflags & RF_MAYBEINVISIBLE) ||
-			!thing->RenderStyle.IsVisible(thing->GetAlpha(r_viewpoint.TicFrac)) ||
+			!thing->RenderStyle.IsVisible(thing->InterpolatedAlpha(r_viewpoint.TicFrac)) ||
 			!thing->IsVisibleToPlayer() ||
 			!thing->IsInsideVisibleAngles())
 		{
@@ -1050,7 +1050,7 @@ namespace swrenderer
 		sprite.spritenum = thing->sprite;
 		sprite.tex = nullptr;
 		sprite.voxel = nullptr;
-		sprite.spriteScale = thing->GetSpriteScale(Thread->Viewport->viewpoint.TicFrac);
+		sprite.spriteScale = thing->InterpolatedScale(Thread->Viewport->viewpoint.TicFrac);
 		sprite.renderflags = thing->renderflags;
 
 		if (thing->player != nullptr)
